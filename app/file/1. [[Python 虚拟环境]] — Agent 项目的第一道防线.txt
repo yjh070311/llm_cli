@@ -1,0 +1,2092 @@
+
+
+2. [[JSON 文件读写]] + [[环境变量与 API Key]] — 配置与持久化的地基
+
+它是什么： json 模块把 Python 的 dict/list 序列化成字符串存到文件，读出来再反序列化回 Python 对象。python-dotenv 从 .env 文件读取键值对，注入到 os.environ。
+
+它解决 Agent 工程里的什么痛点： LLM API Key 是付费凭证，硬编码在代码里 = 一行 git push 就可能泄露，被人盗刷。对话历史不持久化 = 每次重启程序丢失所有上下文，Agent 的多轮对话能力直接废掉。
+
+今天为什么必须学： 今天写的 config.py 和 history.py 是整个 week1_llm_cli 项目的基础设施。后面 Day 3 调 LLM API 要用 Key，Day 5 交互式对话要靠 history 存上下文。
+
+新手最容易踩什么坑：
+- json.dump 写入中文变成 \uXXXX——加 ensure_ascii=False
+- .env 文件里加引号：KEY="value" → 读出来带引号
+- 文件路径硬编码 /home/user/data/ → 换台电脑就挂
+
+---
+
+🎯 6 小时精细化路线
+
+上午 2 小时：看文档 + 最小验证（09:00–11:00）
+
+│ 30   │ 读 python-dotenv 的 PyPI 页面和   │ 理解 load_dotenv() 和            │ 写出 5 行 .env + 5 行 Python     │
+│ min  │ README 示例                       │ os.getenv("KEY", "default")      │ 读取的笔记                       │
+├──────┼───────────────────────────────────┼──────────────────────────────────┼──────────────────────────────────┤
+│ 30   │ 读 json.dump / json.load 的       │                                  │ 写一个 10 行的 Python 脚本读写   │
+│ min  │ Python 官方文档，关注 indent 和   │ 知道 JSON 序列化的 4 个核心参数  │ JSON                             │
+│      │ ensure_ascii                      │                                  │                                  │
+├──────┼───────────────────────────────────┼──────────────────────────────────┼──────────────────────────────────┤
+│ 30   │ 读 pathlib.Path 文档，对比        │ 理解 Path.mkdir(parents=True,    │ 写出 Path("data/history.json")   │
+│ min  │ os.path 的写法                    │ exist_ok=True)                   │ 替代 os.path.join                │
+└──────┴───────────────────────────────────┴──────────────────────────────────┴──────────────────────────────────┘
+
+关联双链：[[Python 虚拟环境]]、[[pathlib 文件路径]]、[[JSON 文件读写]]
+
+---
+
+下午 3 小时：手写核心代码（13:00–16:00）
+
+┌──────┬────────────────────────┬────────────────────────────────────────┬──────────────────────────────────────┐
+│ 时间 │        具体任务        │                预期产出                │              成功检查点              │
+├──────┼────────────────────────┼────────────────────────────────────────┼──────────────────────────────────────┤
+│ 40   │ 创建项目目录结构 +     │ week1_llm_cli/ 完整骨架                │ tree 或 ls -R 看到所有目录和         │
+│ min  │ 虚拟环境 + 安装依赖    │                                        │ requirements.txt                     │
+├──────┼────────────────────────┼────────────────────────────────────────┼──────────────────────────────────────┤
+│ 60   │                        │ 读取 .env 的                           │ python -c "from app.config import    │
+│ min  │ 写 app/config.py       │ LLM_API_KEY/LLM_BASE_URL/LLM_MODEL     │ get_config; print(get_config())"     │
+│      │                        │                                        │ 不报错                               │
+├──────┼────────────────────────┼────────────────────────────────────────┼──────────────────────────────────────┤
+│ 50   │ 写 app/history.py      │ 保存消息到                             │ 写脚本验证：存一条 → 读出来 →        │
+│ min  │                        │ data/history.json，支持读取全部历史    │ 数据一致                             │
+├──────┼────────────────────────┼────────────────────────────────────────┼──────────────────────────────────────┤
+│ 30   │ 写 main.py             │ 调用 config + history，打印配置状态    │ python main.py 输出配置加载成功 +    │
+│ min  │ 最小验证入口           │                                        │ 历史读取成功                         │
+└──────┴────────────────────────┴────────────────────────────────────────┴──────────────────────────────────────┘
+
+关联双链：[[LLM CLI 项目总览]]、[[环境变量与 API Key]]、[[对话历史持久化]]
+
+---
+
+晚上 1 小时：重构 + 笔记 + 自测（19:00–20:00）
+
+时间: 20 min
+具体任务: 给代码加注释（每个函数写清楚输入/输出/可能异常），检查每个函数是否有 Type Hints
+预期产出: 代码有中文注释 + 完整类型注解
+成功检查点: mypy 或肉眼检查：所有函数参数和返回值有类型
+────────────────────────────────────────
+时间: 15 min
+具体任务: 写验收题草稿答案，标记不确定的地方明天问
+预期产出: 3 道题的初步回答
+成功检查点: 每题至少写了关键词
+────────────────────────────────────────
+时间: 15 min
+具体任务: 在 Obsidian 里创建今天的知识点笔记草稿
+预期产出: [[Python 虚拟环境]]、[[环境变量与 API Key]]、[[JSON 文件读写]] 三个笔记
+成功检查点: 每个笔记有标题 + 1 段话 + 1 个代码片段
+────────────────────────────────────────
+时间: 10 min
+具体任务: git add . + git commit -m "feat: init project with config and history modules"
+预期产出: 一次干净 commit
+成功检查点: git log 显示一条 commit
+
+关联双链：[[Git 提交规范]]、[[Python 类型注解]]
+
+---
+
+💻 今日代码实战
+
+关联知识：[[Python 虚拟环境]]、[[环境变量与 API Key]]、[[JSON 文件读写]]、[[pathlib 文件路径]]、[[异常处理]]
+
+项目初始化脚本
+
+在 week1_llm_cli/ 目录下执行以下步骤（不要在 C:\Windows\System32 下操作）：
+
+# 1. 创建项目目录（在你自己的开发目录下执行）
+mkdir week1_llm_cli
+cd week1_llm_cli
+
+# 2. 创建虚拟环境
+python -m venv .venv
+
+# 3. 激活虚拟环境
+# Windows PowerShell:
+.venv\Scripts\Activate.ps1
+# Windows CMD:
+# macOS/Linux:
+source .venv/bin/activate
+
+# 4. 确认解释器位置——应该指向 .venv 里的 python
+# Windows: where python
+# macOS/Linux: which python
+
+# 5. 安装依赖
+pip install httpx python-dotenv rich
+
+# 6. 生成 requirements.txt
+pip freeze > requirements.txt
+
+# 7. 创建目录结构
+mkdir app tests data notes
+
+---
+
+app/__init__.py
+
+"""week1_llm_cli 核心模块 — LLM CLI 调用工具的基础设施层。
+
+本包提供：
+- config: .env 配置读取
+- history: 对话历史 JSON 持久化
+"""
+
+---
+
+app/config.py
+
+"""
+应用配置模块：从 .env 文件读取 LLM API 配置，提供类型安全的配置访问。
+
+新手注意：
+    .env 文件不应该提交到 Git——它包含你的 API Key。
+    本模块读取失败时会抛出 ConfigError，不会默默返回空值。
+"""
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+class ConfigError(Exception):
+    """配置错误：缺少必要的环境变量或配置文件。
+
+    和普通 Exception 的区别：调用方可以单独 catch ConfigError，
+    从而区分「配置没写好」和「网络挂了」两类问题。
+    """
+    pass
+
+
+@dataclass
+class AppConfig:
+    """应用配置的数据容器。
+
+    使用 dataclass 而不是普通 dict 的好处：
+    - IDE 能自动补全字段名
+    - 拼错字段名会在运行前就报错（静态检查）
+    - 类型明确：一眼能看出每个字段是什么类型
+    """
+    api_key: str
+    base_url: str
+    model: str
+
+    def __repr__(self) -> str:
+        """打印配置时隐藏 API Key，防止日志泄露。
+
+        API Key 只在内存中存在，不打印、不入日志、不写入文件。
+        """
+        masked_key = self.api_key[:8] + "****" + self.api_key[-4:] if len(self.api_key) > 12 else "****"
+        return (
+def _find_env_file() -> Path | None:
+    """向上查找 .env 文件，返回第一个存在的路径。
+
+    查找顺序：
+    1. 当前工作目录
+    2. 当前文件所在目录向上两级（app/config.py -> week1_llm_cli/）
+
+    返回 None 表示没找到 .env 文件。
+    """
+    # 先在当前工作目录找
+    cwd_env = Path.cwd() / ".env"
+    if cwd_env.exists():
+        return cwd_env
+
+    # 再在项目根目录找（假设 config.py 在 app/ 下）
+    project_root = Path(__file__).resolve().parent.parent
+    project_env = project_root / ".env"
+    if project_env.exists():
+        return project_env
+
+    return None
+
+
+def get_config() -> AppConfig:
+    """读取 .env 配置并返回 AppConfig 实例。
+
+    调用方不需要传任何参数——这个函数自动找到 .env 并解析。
+
+    Raises:
+        ConfigError: 缺少 .env 文件或必要配置项时抛出。
+    """
+    env_path = _find_env_file()
+    if env_path is None:
+        raise ConfigError(
+            "找不到 .env 文件。\n"
+            "请在项目根目录创建 .env 文件，参考 .env.example 的格式。\n"
+            "最小 .env 内容：\n"
+            "  LLM_API_KEY=your-api-key\n"
+            "  LLM_BASE_URL=https://api.deepseek.com/v1\n"
+            "  LLM_MODEL=d
+    model = os.getenv("LLM_MODEL")
+
+    # 逐一检查，给出精确的错误提示——不让用户猜哪个变量没配
+    missing: list[str] = []
+    if not api_key:
+        missing.append("LLM_API_KEY")
+    if not base_url:
+        missing.append("LLM_BASE_URL")
+    if not model:
+        missing.append("LLM_MODEL")
+
+    if missing:
+        raise ConfigError(
+            f"以下环境变量未配置：{', '.join(missing)}\n"
+            f"请检查 .env 文件（路径：{env_path}）确保这些字段都已填写。"
+        )
+
+    return AppConfig(api_key=api_key, base_url=base_url, model=model)
+
+你需要观察什么：
+- _find_env_file() 为什么先查 Path.cwd() 再查相对路径：因为在不同目录执行 python main.py 时，当前工作目录可能不同
+- get_config() 为什么返回 AppConfig 对象而不是 dict：dataclass 让你写 cfg.api_key 而不是 cfg["api_key"]，拼错 IDE 会标红
+- __repr__ 为什么不直接打印 api_key：防止日志文件泄露密钥
+
+---
+
+app/history.py
+
+"""
+对话历史持久化模块：把和 LLM 的对话保存为 JSON 文件，支持追加和读取。
+
+设计决策：
+    Week 1 用 JSON 文件而不是数据库——项目规模小，一条对话就两条记录，
+    引入数据库反而增加学习负担。Week 2-3 会迁移到数据库。
+"""
+
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+class HistoryError(Exception):
+    """历史记录操作失败——通
+def _ensure_data_dir(filepath: Path) -> None:
+    """确保目标文件的父目录存在。
+
+    如果 data/ 目录不存在，自动创建。不需要使用者手动 mkdir。
+
+    Args:
+        filepath: 目标 JSON 文件的完整路径。
+    """
+    parent = filepath.parent
+    if not parent.exists():
+        parent.mkdir(parents=True, exist_ok=True)
+
+
+def _build_message(role: str, content: str) -> dict[str, str]:
+    """构建一条符合 OpenAI messages 格式的消息记录。
+
+    Args:
+        role: 消息角色，取值为 "system"、"user" 或 "assistant"。
+        content: 消息正文。
+
+    Returns:
+        包含 role、content 和 timestamp 的字典。
+    """
+    return {
+        "role": role,
+        "content": content,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def save_message(filepath: Path, role: str, content: str) -> None:
+    """向对话历史文件追加一条消息。
+
+    如果文件不存在，自动创建新文件并写入第一条记录。
+    如果文件已存在，读取现有记录后追加新消息。
+
+    Args:
+        filepath: 历史文件路径，例如 Path("data/history.json")。
+        role: 消息角色。
+        content: 消息内容。
+
+    Raises:
+        HistoryError: JSON 文件损坏或写入权限不足时抛出。
+    """
+    _ensure_data_dir(filepath)
+
+    message = _build_message(role, content)
+
+    # 读取现有历史——文件可能不存在，也可能存在但内容损坏
+    history: list[dict[str, Any]] = []
+    if filepath.exists():
+        try:
+            raw = filepath.read_text(encoding="utf-8")
+            if raw.strip():  # 文件不为空才解析
+                history = json.loads(raw)
+                if not isi
+                    raise HistoryError(
+                        f"历史文件格式错误：期望 JSON 数组，实际是 {type(history).__name__}。\n"
+                        f"请检查文件：{filepath}"
+                    )
+        except json.JSONDecodeError as e:
+            raise HistoryError(
+                f"历史文件 JSON 解析失败：{e.msg}（第 {e.lineno} 行，第 {e.colno} 列）。\n"
+                f"文件路径：{filepath}\n"
+                f"建议：手动检查文件末尾是否多了逗号，或者文件是否被截断。"
+            ) from e
+
+    history.append(message)
+
+    # ensure_ascii=False 让中文字符正常显示，indent=2 让文件可读
+    try:
+        )
+    except OSError as e:
+        raise HistoryError(
+            f"无法写入历史文件：{e.strerror if hasattr(e, 'strerror') else str(e)}\n"
+            f"文件路径：{filepath}"
+        ) from e
+
+
+def load_messages(filepath: Path) -> list[dict[str, Any]]:
+    """读取对话历史文件中的所有消息。
+
+    Args:
+        filepath: 历史文件路径。
+
+    Returns:
+        消息列表。如果文件不存在或为空，返回空列表而不是报错——
+        这是有意设计：首次使用时没有历史是正常状态。
+
+    Raises:
+        HistoryError: JSON 格式损坏时抛出。
+    """
+    if not filepath.exists():
+        return []
+
+    try:
+        raw = filepath.read_text(encoding="utf-8")
+    except OSError as e:
+        raise HistoryError(
+            f"无法读取历史文件：{e.strerror if hasattr(e, 'strerror') else str(e)}\n"
+            f"文件路径：{filepath}"
+        ) from e
+
+    if not raw.strip():
+        return []
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise HistoryError(
+            f"历史文件 JSON 解析失败：{e.msg}（第 {e.lineno} 行，第 {e.colno} 列）。\n"
+            f"文件路径：{filepath}"
+        ) from e
+
+    if not isinstance(dat
+        raise HistoryError(
+            f"历史文件格式错误：期望 JSON 数组，实际是 {type(data).__name__}。\n"
+            f"文件路径：{filepath}"
+        )
+
+    return data
+
+你需要观察什么：
+- save_message 为什么先读取全部历史再写回去：JSON 不支持「追加一行」，必须整文件重写
+- load_messages 为什么对「文件不存在」返回空列表而不是报错：第一天使用时本来就没有历史，空列表是正常状态
+- 为什么 _build_message 加了 timestamp：后面做多轮对话时，时间戳可以帮助 debug 和统计
+
+---
+
+main.py（最小验证入口）
+
+"""
+week1_llm_cli 程序入口 — Day 1 最小验证版本。
+
+今天只验证两件事：
+    1. 配置能正确读取（.env 解析正常）
+    2. 历史记录能正确读写（JSON 持久化正常）
+
+Day 3-5 会逐步加入 LLM 调用和交互式命令行。
+"""
+
+import sys
+from pathlib import Path
+
+# 把项目根目录加入 sys.path，确保在任意目录执行 python main.py 都能找到 app 包
+PROJECT_ROOT = Path(__file__).resolve().parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from app.config import get_config, ConfigError
+from app.history import save_message, load_messages, HistoryError
+
+HISTORY_FILE = PROJECT_ROOT / "data" / "history.json"
+
+
+def main() -> None:
+    """Day 1 最小验证：配置读取 + 历史记录读写。"""
+    print("=" * 50)
+    print("  week1_llm_cl
+    print("\n[1/2] 验证配置读取...")
+    try:
+        cfg = get_config()
+        print(f"  ✅ 配置读取成功：{cfg}")
+    except ConfigError as e:
+        print(f"  ❌ 配置读取失败：\n{e}")
+        print("\n  👉 解决方法：在项目根目录创建 .env 文件，内容如下：")
+        print("    LLM_API_KEY=你的APIKey")
+        print("    LLM_BASE_URL=https://api.deepseek.com/v1")
+        print("    LLM_MODEL=deepseek-chat")
+        return  # 配置不对，后续步骤也没必要跑了
+
+    # ---- 步骤 2：验证历史记录 ----
+    print("\n[2/2] 验证历史记录读写...")
+    try:
+        # 保存一条测试消息
+        save_message(HISTORY_FILE, "user", "[Day 1 测试] 这是一条验证消息")
+
+        # 读回来
+        messages = load_messages(HISTORY_FILE)
+        print(f"  ✅ 历史记录保存成功，当前共 {len(messages)} 条消息")
+        for i, msg in enumerate(messages[-3:], 1):  # 只展示最近 3 条
+            role = msg.get("role", "?")
+            content = msg.get("content", "")
+            ts = msg.get("timestamp", "?")
+            print(f"     [{i}] {role}: {content[:50]}{'...' if len(content) > 50 else ''} ({ts[:19]})")
+    except HistoryError as e:
+        print(f"  ❌ 历史记录操作失败：\n{e}")
+        return
+
+    # ---- 完成 ----
+    print("\n" + "=" * 50)
+    print("  ✅ Day 1 地基验证全部通过！")
+    print("  👉 下一步：创建 .env.example 和 .gitignore")
+    print("=" * 50)
+
+
+if __name__ == "__main__":
+    main()
+
+---
+
+运行方式
+
+# 1. 在项目根目录创建 .en
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
+
+# 3. 运行
+python main.py
+
+# 预期输出：
+# ==================================================
+#   week1_llm_cli — Day 1 地基验证
+# ==================================================
+# [1/2] 验证配置读取...
+#   ✅ 配置读取成功：AppConfig(base_url='https://api.deepseek.com/v1', ...)
+# [2/2] 验证历史记录读写...
+#   ✅ 历史记录保存成功，当前共 1 条消息
+# ==================================================
+#   ✅ Day 1 地基验证全部通过！
+# ==================================================
+
+配套 .env.example
+
+# LLM API 配置模板
+# 复制此文件为 .env 并填入真实值
+# 警告：.env 包含密钥，绝对不能提交到 Git！
+
+LLM_API_KEY=sk-your-api-key-here
+LLM_BASE_URL=https://api.deepseek.com/v1
+LLM_MODEL=deepseek-chat
+
+配套 .gitignore
+
+gitignore
+# 密钥文件——绝不能提交
+.env
+
+# Python 虚拟环境
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# 用户数据——本地对话历史不提交
+data/
+.idea/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+---
+
+你需要观察什么
+
+1. 如果 python main.py 报 ModuleNotFoundError: No module named 'dotenv' → 虚拟机环境没激活，或者 pip install 装到了全局。解决：先 activate，再确认 pip list | grep dotenv 能看到包。
+2. 如果 python main.py 从别的目录执行（比如在 C:\Windows\System32 下执行 python D:\projects\week1_llm_cli\main.py）→ config 读取的 .env 可能找不到。解决：始终 cd 到项目根目录再执行。
+3. data/history.json 文件内容 → 打开看看，是不是 ensure_ascii=False 让中文正常显示了。改成 ensure_ascii=True 再运行一次，观察中文变成了什么。
+
+2. 给 save_message 增加最大条数限制：历史超过 100 条时自动删除最旧的消息，防止 JSON 文件无限膨胀。
+3. 给 main.py 增加参数：python main.py --reset-history 清空对话历史重新开始。
+
+---
+
+🎯 每日自我验收题
+3. data/history.json 文件内容 → 打开看看，是不是 ensure_ascii=False 让中文正常显示了。改成 ensure_ascii=True 再运行一次，观察中文变成了什么。
+
+---
+
+可扩展任务
+
+1. 给 AppConfig 增加字段：timeout: int = 30，从 .env 读取 LLM_TIMEOUT，默认 30 秒。
+2. 给 save_message 增加最大条数限制：历史超过 100 条时自动删除最旧的消息，防止 JSON 文件无限膨胀。
+3. 给 main.py 增加参数：python main.py --reset-history 清空对话历史重新开始。
+
+---
+
+🎯 每日自我验收题
+
+第 1 题（概念解释）： 为什么 os.getenv("LLM_API_KEY") 读到的是 .env 文件里的值？load_dotenv() 在这中间做了什么？如果系统环境变量里已经有 LLM_API_KEY，load_dotenv() 会覆盖它吗？提示：查阅 python-dotenv 的 override 参数。
+
+---
+
+第 2 题（小实现 / 设计）： 写一个函数 get_api_key() -> str，要求：
+- 优先从环境变量 LLM_API_KEY 读取
+- 如果没有，从 ~/.llm_config.json 文件读取（JSON 格式：{"api_key": "sk-xxx"}）
+- 如果都没有，抛出 ConfigError 并告诉用户去哪里配置
+- 函数要有完整的 Type Hints 和中文 docstring
+
+---
+
+第 3 题（代码改错 / Bug 排查）： 下面这段代码有什么问题？至少找出 3 个。
+
+def save_to_json(filename, data):
+    f = open(filename, "w")
+    f.write(data)
+
+---
+
+📥 明日同步接口
+
+请你明天把下面这段填好发给我：
+
+【Day 1 学习反馈】
+1. 今天实际学习时长：
+2. 完成了哪些代码/文件：
+3. 哪个概念最清楚了：
+4. 哪个概念还没懂：
+
+---
+
+双链是什么
+
+看到类似 [[Python 虚拟环境]] 这样的写法，它做了两件事：
+
+1. 点击跳转 — 在 Obsidian 里点它，直接打开名为「Python 虚拟环境」的笔记
+2. 如果笔记不存在，点它自动创建 — 第一次点会新建一个空白笔记，等你填写
+
+---
+
+怎么用（三步）
+
+第 1 步：把每日学习内容放进 Obsidian
+
+把每天生成的内容（Markdown 格式）复制到 Obsidian 的 vault 里，比如新建一个文件叫 Week1-Day1.md。
+
+第 2 步：点击双链
+
+打开 Obsidian 的阅读视图（快捷键 Ctrl+E 切换），点击 [[Python 虚拟环境]]：
+
+- 如果已有同名笔记 → 直接跳
+├── 📌 核心死磕
+│   └── [[Python 虚拟环境]]        ← 点它 → 打开 Python 虚拟环境.md
+│   └── [[JSON 文件读写]]           ← 点它 → 打开 JSON 文件读写.md
+├── 💻 代码实战
+│   关联知识：[[环境变量与 API Key]]
+│
+Week2-Day3.md（几天后的笔记）
+├── [[Python 虚拟环境]]             ← 再次引用同一个笔记
+│
+Python 虚拟环境.md（知识点笔记）
+├── 反向链接：
+│   ├── Week1-Day1.md   ← Obsidian 自动记录
+│   └── Week2-Day3.md   ← Obsidian 自动记录
+
+当你复习到 Week 2 又看到 [[Python 虚拟环境]]，点一下就能回到 Day 1 学过的内容，不用翻文件夹找。
+
+---
+
+没有 Obsidian 怎么办
+
+如果你不用 Obsidian，双链就当作学习提醒：
+
+- 看到 [[Python 虚拟环境]] = "这里有个重要知识点，值得单独整理"
+- 可以在 Notion/飞书/本地文件夹里新建一个同名文档
+- 或者直接忽略双链，不影响学习内容本身。想关掉也可以说 「不要 Obsidian 链接」
+
+---
+
+和本课程的关系
+每天学习内容里的双链密度是设计好的：
+
+- 📌 今日核心死磕 — 每个技术点 1-3 个双链（当天最重要的概念）
+- 🎯 6小时路线 — 每段时间 1 个双链（关联任务和知识点）
+- 💻 今日代码实战 — 代码块前一行 关联知识：[[A]]、[[B]]（这段代码依赖的概念）
+
+这样 8 周下来，你点任何一个知识点，都能看到它在哪些天被学过、用过、验收过——这就是知识网络，面试复习时特别有用。
+
+---
+
+有 Obsidian 的话现在就试试：把今天 Day 1 的内容粘贴进去，点一下 [[Python 虚拟环境]]。没有的话就跳过，不影响开始写代码。
+
+✻ Churned for 19s · done 6月10日星期三 22:13
+
+※ recap: 我们在配置一个 8 周
+> 生成 Day 2
+2 skills available
+
+  Thought for 20s
+
+按照 Week 1 大纲和 8-week-spine 的 Day 2 主线（HTTP 与 API 调用），无历史反馈，按正常推进生成。
+
+---
+
+📅 Week 1 / Day 2：HTTP 与 API 调用
+
+📌 今日核心死磕
+
+1. [[HTTP 请求结构]] — Agent 与外部世界对话的唯一语言
+
+它是什么： HTTP 是客户端和是怎么传的、Body 里 messages 数组是什么格式、收到 429 该重试还是报错，明天写 LLMClient 就是照抄代码而不理解，出了错只能干瞪眼。
+
+新手最容易踩什么坑：
+- GET 请求把数据放在 Body 里（GET 不应该有 Body，参数放在 URL Query String 里）
+- 把 Content-Type: application/json 写错成 text/plain，服务端解析不了
+- 不看状态码，response.text 直接当成功结果用——可能是 HTML 错误页面
+
+---
+
+2. [[httpx 异步请求]] — 为什么 Agent 项目不直接用 requests
+
+它是什么： httpx 是一个支持 HTTP/2 和异步的 Python HTTP 客户端库，API 设计和 requests 几乎一样，但多了一个 AsyncClient。
+
+它解决 Agent 工程里的什么痛点： requests 是同步阻塞的——发一个请求，必须等它返回才能做下一件事。Agent 项目经常需要同时做多件事：调 LLM 生成回答 + 查向量数据库找相关文档 + 调外部 API 获取实时数据。用 requests 只能一件一件等（3 秒 + 2 秒 + 1 秒 = 6 秒），用 httpx.AsyncClient + asyncio.gather 可以同时发三个请求（总耗时 ≈ 最慢那个，约 3 秒）。
+
+今天为什么必须学： Day 4 要做异步并发调用和耗时统计。今天先搞懂 httpx 的基本用法——同步 Client 怎么封装、怎么设 timeout、怎么处理异常——Day 4 切到 AsyncClient 就只是语法层面的变化，不会卡在 HTTP 概念上。
+
+新手最容易踩什么坑：
+- 忘记调 response.raise_for_status()——状态码 500 也不报错，后续代码拿 response.json() 解析出 HTML 报错页面然后崩掉
+- timeout 设太大（等 60 秒）或太小（LLM 推理还没完就断了），不理解 connect timeout 和 read timeout 的区别
+
+---
+
+🎯 6 小时精细化路线
+
+上午 2 小时：看文档 + 抓包理解 HTTP（09:00–11:00）
+
+┌─────┬───────────────────────────────────────────┬─────────────────────────────────┬────────────────────────────┐
+│ 时  │                 具体任务                  │            预期产出             │         成功检查点         │
+│ 间  │                                           │                                 │                            │
+├─────┼───────────────────────────────────────────┼─────────────────────────────────┼────────────────────────────┤
+│ 30  │ 读 MDN 的 HTTP 概述文档（中文版），重点看 │ 能画出 HTTP 请求的 4 个组成部分 │ 口头说出 GET 和 POST 的 3  │
+│ min │  Request/Response 结构和状态码分类        │                                 │ 个区别                     │
+├─────┼───────────────────────────────────────────┼─────────────────────────────────┼────────────────────────────┤
+│     │ 用浏览器开发者工具（F12 →                 │                                 │                            │
+│ 30  │ Network）抓一个任意网站的 HTTP            │ 看到真实的 Content-Type、Author │ 能找到至少 3 个不同的状态  │
+│ min │ 请求，点开看 Request Headers / Response   │ ization、status code            │ 码（200、304、404 等）     │
+│     │ Headers / Response Body                   │                                 │                            │
+├─────┼───────────────────────────────────────────┼─────────────────────────────────┼────────────────────────────┤
+│ 30  │ 读 httpx 官方文
+│ 30  │ 做实验（https://httpbin.org 或 https://js │ 对每种方法有一个真实的请求/响应 │ 每条请求的响应 status 和   │
+│ min │ onplaceholder.typicode.com），分别发      │ 记录                            │ body 都记录下来            │
+│     │ GET/POST/PUT/DELETE                       │                                 │                            │
+└─────┴───────────────────────────────────────────┴─────────────────────────────────┴────────────────────────────┘
+
+关联双链：[[HTTP 请求结构]]、[[HTTP 状态码]]、[[RESTful API 设计]]、[[httpx 异步请求]]
+
+---
+
+下午 3 小时：手写核心代码（13:00–16:00）
+
+┌─────┬─────────────────────────────────┬───────────────────────────┬────────────────────────────────────────────┐
+│ 时  │            具体任务             │         预期产出          │                 成功检查点                 │
+│ 间  │                                 │                           │                                            │
+├─────┼─────────────────────────────────┼───────────────────────────┼────────────────────────────────────────────┤
+│     │
+│ min │ P 状态码错误、JSON 解析错误     │ 支，打印清晰中文错误信息  │ 输出不同错误信息                           │
+├─────┼─────────────────────────────────┼───────────────────────────┼────────────────────────────────────────────┤
+│ 30  │ 写 async_api_demo.py，用        │ 对比同步和异步的代码差异  │ 异步版本也能调通同一个 API                 │
+│ min │ httpx.AsyncClient 发送异步请求  │                           │                                            │
+└─────┴─────────────────────────────────┴───────────────────────────┴────────────────────────────────────────────┘
+
+关联双链：[[API 超时处理]]、[[JSON API]]、[[异常处理]]
+
+---
+
+晚上 1 小时：重构 + 笔记 + 自测（19:00–20:00）
+
+┌──────┬───────────────────────────────────────────┬─────────────────────┬───────────────────────────────────────┐
+│ 时间 │                 具体任务                  │      预期产出       │              成功检查点               │
+├──────┼───────────────────────────────────────────┼─────────────────────┼───────────────────────────────────────┤
+│ 15   │ 给 api_client.py                          │ 代码可读性 >        │ 每个函数签名都有完整类型注解          │
+│ min  │ 补中文注释，确保每个方法有 Type Hints     │ 可维护性            │                                       │
+├──────┼───────────────────────────────────────────┼─────────────────────┼───────────────────────────────────────┤
+│ 15   │                                           │ 2xx/3xx/4xx/5xx     │ 能不看资料说出                        │
+│ min  │ 整理 HTTP 状态码速查表到笔记              │ 各记 3 个最常用的   │ 200/201/400/401/403/404/422/500       │
+│      │                                           │                     │ 分别什么意思                          │
+├──────┼───────────────────────────────────────────┼─────────────────────┼───────────────────────────────────────┤
+│ 15   │ 画一张「Agent 应用中的 HTTP               │ 一张手绘或 Mermaid  │                                       │
+│ min  │ 请求全景图」：用户→FastAPI→LLM            │ 图                  │ 每条箭头标了 HTTP Method              │
+│      │ API→向量数据库→返回                       │                     │                                       │
+├──────┼───────────────────────────────────────────┼─────────────────────┼───────────────────────────────────────┤
+│ 10   │ 自测 3 道题，标记不确定的                 │ 每题至少写了思路    │ 不确定的地方标 ? 明天问               │
+│ min  │                                           │                     │                                       │
+├──────┼───────────────────────────────────────────┼─────────────────────┼───────────────────────────────────────┤
+│ 5    │ git add . + git commit -m "feat: add HTTP │                     │ git log 显示 2 条 commit（Day 1 + Day │
+│ min  │  API client with timeout and error        │ 一次干净 commit     │  2）                                  │
+│      │ handling"                                 │                     │                                       │
+└──────┴───────────────────────────────────────────┴─────────────────────┴───────────────────────────────────────┘
+
+关联双链：[[Git 提交规范]]、[[Python 类型注解]]、[[README 编写]]
+
+---
+
+💻 今日代码实战
+
+关联知识：[[HTTP 请求结构]]、[[httpx 异步请求]]、[[API 超时处理]]、[[HTTP 状态码]]、[[异常处理]]
+
+
+设计原则：
+    - 所有请求走同一个 Client 实例，复用连接池（httpx 内部管理）
+    - 超时设定：连接 10 秒，读取 30 秒（LLM API 推理可能比较慢）
+    - 状态码错误和网络异常分开处理，给调用方明确的错误信息
+"""
+
+from dataclasses import dataclass
+from typing import Any
+
+import httpx
+
+
+# ============================================================
+# 自定  异常类 — 让错误类型一目了然
+# ============================================================
+
+class NetworkError(APIError):
+    """网络层面的错误：DNS 解析失败、连接被拒绝、网线拔了。
+
+    这类错误通常可以重试——服务端根本没收到请求。
+    """
+    pass
+
+
+class TimeoutError(APIError):
+    """请求超时——可能是 connect 超时（服务器没响应）或 read 超时（响应太慢）。
+
+    read 超时在 LLM API 中很常见——模型推理需要时间。
+    此时可以适当增大 read timeout 或换更快的模型。
+    """
+    pass
+
+
+        super().__init__(message)
+        self.status_code = status_code
+        self.response_body = response_body
+
+    def __str__(self) -> str:
+        parts = [f"HTTP {self.status_code}: {super().__str__()}"]
+        if self.response_body:
+            # 只取前 200 个字符，防止 HTML 错误页面刷屏
+            body_preview = self.response_body[:200]
+            parts.append(f"响应内容: {body_preview}")
+        return "\n".join(parts)
+
+
+class JSONParseError(APIError):
+    """响应体不是有效的 JSON——可能是服务端返回了 HTML 错误页或纯文本。"""
+    pass
+
+
+# ============================================================
+# API 响应封装 — 让调用方不用关心 httpx 的底层细节
+# ============================================================
+
+@dataclass
+class APIResponse:
+    """统一的 API 响应数据结构。
+
+    不直接暴露 httpx.Response，原因：
+        1. 调用方代码不依赖 httpx，方便以后换库
+        2. 提前解析 JSON，JSON 解析失败在这里统一处理
+    """
+    status_code: int
+    headers: dict[str, str]
+    json_data: Any  # 解析后的 JSON（dict / list / None）
+    raw_text: str   # 保留原始文本用于 debug
+
+    def json(self) -> Any:
+        """返回解析后的 JSON 数据。
+
+        快捷方法，和 httpx 的 response.json() 保持类似 API。
+        """
+        return self.json_data
+
+
+# ============================================================
+# HTTP 客户端
+# ============================================================
+
+class APIClient:
+        client = APIClient(timeout=30.0)
+        resp = client.get("https://httpbin.org/json")
+        print(resp.json_data)
+
+        resp = client.post("https://httpbin.org/post", json={"key": "value"})
+        print(resp.status_code)
+
+    注意:
+        - 使用 with 语句确保连接正确关闭
+        - 不要每次请求都创建新的 APIClient，复用同一个实例
+    """
+
+    def __init__(self, connect_timeout: float = 10.0, read_timeout: float = 30.0):
+        """初始化客户端。
+
+        Args:
+    def close(self) -> None:
+        """关闭客户端，释放连接资源。"""
+        self._client.close()
+
+    def __enter__(self) -> "APIClient":
+        """支持 with 语句：with APIClient() as client:"""
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        """退出 with 块时自动关闭连接。"""
+        self.close()
+
+    def _request(self, method: str, url: str, **kwargs: Any) -> APIResponse:
+        """执行 HTTP 请求的内部方法——所有公开方法最终走这里。
+
+        集中处理异常转换：把 httpx 的异常体系转换为我们自己的 APIError 体系。
+        这样调用方只需要 catch 几种 APIError 子类，不需要了解 httpx 的异常类型。
+        """
+        try:
+            response = self._client.request(method, url, **kwargs)
+        except httpx.ConnectError as e:
+            # 连接失败：DNS 解析不了、IP 不可达、端口没开
+            raise NetworkError(f"无法连接到服务器: {url}\n原因: {e}") from e
+        except httpx.ReadTimeout as e:
+            raise TimeoutError(
+                f"读取响应超时（{self._timeout.read} 秒）: {url}\n"
+                f"建议: 如果是 LLM API，可以增大 read_timeout 或换更快模型"
+            ) from e
+        except httpx.ConnectTimeout as e:
+            raise TimeoutError(
+                f"连接超时（{self._timeout.connect} 秒）: {url}\n"
+                f"建议: 检查网络或服务是否在线"
+            ) from e
+        except httpx.RequestError as e:
+            # 其他所有 httpx 请求异常的兜底
+            raise NetworkError(f"网络请求失败: {url}\n原因: {e}") from e
+
+        # 解析 JSON——失败也单独报
+        try:
+            json_data = response.json()
+        except Exception:
+            # 响应不是 JSON（可能是 HTML 错误页或纯文本）
+            json_data = None
+
+        if response.is_error:
+            # 状态码 4
+                response_body=response.text,
+            )
+
+        return APIResponse(
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            json_data=json_data,
+            raw_text=response.text,
+        )
+
+    def get(self, url: str, **kwargs: Any) -> APIResponse:
+        """发送 GET 请求。
+
+        Args:
+            url: 请求地址（含 Query String 如果需要）
+            **kwargs:
+        return self._request("GET", url, **kwargs)
+
+    def post(self, url: str, *, json: dict[str, Any] | None = None, data: Any = None, **kwargs: Any) -> APIResponse:
+        """发送 POST 请求。
+
+        Args:
+            url: 请求地址
+            json: JSON 请求体（会自动设置 Content-Type: application/json）
+            data: 原始请求体（表单数据等，不会自动设 Content-Type）
+            **kwargs: 透传给 httpx
+
+        Returns:
+            APIResponse 对象
+        """
+        return self._request("POST", url, json=json, data=data, **kwargs)
+
+    def put(self, url: str, *, json: dict[str, Any] | None = None, **kwargs: Any) -> APIResponse:
+        """发送 PUT 请求（用于更新资源）。"""
+        return self._request("PUT", url, json=json, **kwargs)
+
+    def delete(self, url: str, **kwargs: Any) -> APIResponse:
+        """发送 DELETE
+这个文件不是项目代码，是今天用来探索 HTTP 的练习脚本。学完可以删掉或者放到 notes/ 里：
+
+"""
+Day 2 HTTP 探索脚本 — 用来理解 HTTP 请求/响应的结构。
+
+运行方式：
+    python explore_http.py
+
+这个文件帮助你直观看到 HTTP 的每个组成部分，
+不需要理解每一行代码——重点观察输出。
+"""
+
+from app.api_client import APIClient, HTTPStatusError, NetworkError, TimeoutError
+
+
+def explore_get() -> None:
+    """探索 GET 请求——
+        try:
+            resp = client.get("https://jsonplaceholder.typicode.com/posts/1")
+            print(f"  状态码: {resp.status_code}")
+            print(f"  响应头 Content-Type: {resp.headers.get('content-type', '未知')}")
+            print(f"  响应的 JSON 数据:")
+            # 美化打印 JSON，indent=2 让缩进清晰
+            import json
+            print(json.dumps(resp.json_data, ensure_ascii=False, indent=2))
+        except (NetworkError, TimeoutError, HTTPStatusError) as e:
+            print(f"  ❌ 请求失败:\n{e}")
+
+    print()
+
+
+def explore_post() -> None:
+    """探索 POST 请求—
+
+    with APIClient() as client:
+        try:
+            resp = client.post(
+                "https://jsonplaceholder.typicode.com/posts",
+                json=payload,
+            )
+            print(f"  状态码: {resp.status_code}")  # 应该是 201 Created
+            print(f"  POST 返回的新资源 ID: {resp.json_data.get('id') if resp.json_data else '无'}")
+            print(f"  完整响应: {resp.json_data}")
+        except (NetworkError, TimeoutError, HTTPStatusError) as e:
+            print(f"  ❌ 请求失败:\n{e}")
+
+    print()
+
+
+def explore_error_handling() -> None:
+    """探索错误处理——理解不同错误的区别"""
+    print("=" * 60)
+    print("3️⃣  错误处理演示 — 看不同错误长什么样")
+    print("=" * 60)
+
+    with APIClient(connect_timeout=5.0, read_timeout=5.0) as client:
+        # 场景 1：请求一个不存在的资源（404）
+        print("\n  [场景 A] 请求不存在的资源...")
+        try:
+            client.get("https://jsonplaceholder.typicode.com/posts/99999")
+        except HTTPStatusError as e:
+            print(f"  ❌ 捕获到 HTTPStatusError:")
+            print(f"     状态码: {e.status_code}")
+
+        # 场景 2：请求一个格式错误的 URL（演示 NetworkError）
+        # 注释掉因为这会真的超时，太慢了
+        # print("\n  [场景 B] 请求一个不存在的服务器...")
+        # try:
+        #     client.get("https://this-does-not-exist.example.com/api")
+        # except NetworkError as e:
+        #     print(f"  ❌ 捕获到 NetworkError")
+
+    print()
+
+
+        try:
+            # httpbin.org/anything 会把你的请求原样返回
+            # 这是理解 HTTP 结构的最佳工具
+            resp = client.post(
+                "https://httpbin.org/anything",
+                json={"message": "你好 HTTP", "count": 42},
+                headers={"X-Custom-Header": "my-test-value"},
+            )
+            if resp.json_data:
+                echoed = resp.json_data
+                print(f"  服务端收到的 Method: {echoed.get('method')}")
+                print(f"  服务端收到的 Headers:")
+                for key, value in echoed.get("headers", {}).items():
+                    print(f"    {key}: {value}")
+                print(f"  服务端收到的 JSON Body: {echoed.get('json')}")
+        except (NetworkError, TimeoutError, HTTPStatusError) as e:
+            print(f"  ❌
+    explore_httpbin()
+
+---
+
+运行方式
+
+# 1. 确保在 week1_llm_cli/ 项目根目录
+cd week1_llm_cli
+
+# 2. 激活虚拟环境
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
+
+# 3. 安装 httpx（Day 1 已经装了，如果跳过了就执行）
+pip install httpx
+
+# 4. 运行探索脚本
+python explore_http.py
+
+{
+  "userId": 1,
+  "id": 1,
+  "title": "...",
+  "body": "..."
+}
+
+============================================================
+2️⃣  POST 请求 — 创建新数据
+============================================================
+  状态码: 201   ← POST 创建成功返回 201，不是 200
+  POST 返回的新资源 ID: 101
+
+============================================================
+3️⃣  错误处理演示
+============================================================
+  [场景 A] 请求不存在的资源...
+  ❌ 捕获到 HTTPStatusError:
+     状态码: 404
+
+============================================================
+4️⃣  httpbin 诊断 — 看你的请求到底长什么样
+============================================================
+  服务端收到的 Method: POST
+  服务端收到的 Headers:
+    Host: httpbin.org
+    Content-Type: application/json
+    X-Custom-Header: my-test-value  ← 自定义头被服务端收到了
+  服务端收到的 JSON Body: {'message': '你好 HTTP', 'count': 42}
+
+---
+
+你需要观察什么
+
+1. GET 和 POST 返回的状态码不同：GET 成功是 200，POST 创建成功是 201。这是 RESTful 惯例——201 Created 明确告诉你"资源创建了"。
+2. httpbin 场景里服务端返回的 Headers：注意 Content-Type: application/json 是 httpx 自动帮你加的，不需要手动设。但如果传 data= 而不是 json=，它就不会加这个头——服务端可能解析失败。
+3. 错误场景 A 的表现：404 Not Found → 抛出了 HTTPStatusError 而不是 NetworkError。这说明请求成功到达了服务端，只是资源不存在——这和断网是完全不同的问题，需要的处理策略也不同（404 没必要重试，网络错误可以重试）。
+
+---
+
+3. 用 httpx.AsyncClient 写异步版本：把 APIClient 的 get/post 改成 async def，用 async with 管理 Client。对比同步版本看看有哪些语法差异。
+
+---
+
+🎯 每日自我验收题
+
+第 1 题（概念解释）： 一个 HTTP 请求从浏览器发出到收到响应，经过了哪些步骤？请用你自己的话描述 DNS 解析 → TCP 连接 → TLS 握手 → 发送请求 → 等待响应 → 解析响应这个过程。不需要深入到包级别，但要说清楚每一步做了什么。相关的 Obsidian 知识点：[[HTTP 请求结构]]。
+
+---
+
+
+---
+
+第 3 题（代码改错 / Bug 排查）： 下面这段代码在调用 LLM API 时会遇到什么问题？至少找出 2 个：
+
+import httpx
+
+def call_llm(api_key, prompt):
+    response = httpx.post(
+        "https://api.deepseek.com/v1/chat/completions",
+        headers={"Authorization": api_key},  # 注意这一行
+        json={
+            "model": "deepseek-chat",
+            "messages": [{"role": "user", "content": prompt}],
+        },
+    )
+    return response.json()["choices"][0]["message"]["content"]
+
+print(call_llm("sk-xxx", "你好"))
+
+提示：从 Headers 格式、异常处理、响应校验几个角度排查。关联双链：[[HTTP 请求结构]]、[[API 超时处理]]。
+
+---
+
+📥 明日同步接口
+
+请你明天把下面这段填好发给我：
+
+【Day 2 学习反馈】
+1. 今天实际学习时长：
+2. 完成了哪些代码/文件：
+3. 哪个概念最清楚了：
+4. 哪个概念还没懂：
+5. 卡住的 Bug / 报错全文：
+6. 自我验收题完成情况：
+7. 明天希望：正常推进 / 放慢复习 / 加难扩展
+
+✻ Worked for 1m 41s · done 7月9日星期四 12:10
+
+> 生成 Day 3
+
+  Thought for 9s
+
+按照 Week 1 大纲 Day 3 主线（大模型 API 最小调用），无反馈，正常推进。
+
+---
+
+
+📌 今日核心死磕
+
+1. [[OpenAI-compatible API]] — 所有 LLM 调用的通用语言
+
+它是什么： OpenAI-compatible API 是一种事实标准——绝大多数国产大模型（DeepSeek、Qwen、GLM、Moonshot）都提供与之兼容的接口格式。核心是 /v1/chat/completions 端点，通过 messages 数组发送对话，返回 choices[0].message.content。
+
+它解决 Agent 工程里的什么痛点： 你不可能只用一个模型。今天用 DeepSeek 便宜量大，下周某个任务需要更好的指令遵循能力就切到 Claude，下个月公司统一采购了某个国产模型。如果每个模型都要重写调用代码，Agent 项目就变成了适配器地狱。OpenAI-compatible 格式让你换模型只改 URL 和 API Key，不改代码。
+
+今天为什么必须学： Day 5 要交付一个完整的 LLM CLI 工具。如果今天不把 LLMClient 封装好——包括消息构建、角色管理、错误处理——Day 5 的交互式 CLI 就没法调用任何模型，项目核心功能缺失。
+
+新手最容易踩什么坑：
+- Authorization 头写 Authorization: sk-xxx 而不是 Authorization: Bearer sk-xxx，返回 401 一脸懵
+- messages 里 role 拼成 "role": "system" 能跑，拼成 "role": "sys" 不报错但模型不听你的系统指令
+- 不检查 finish_reason——模型可能因为 token 不够截断了回答，你却当完整回答用
+
+---
+
+2. [[LLM messages 结构]] — Agent 记忆的底层数据结构
+
+它是什么： messages 是一个数组，每个元素是 {"role": "角色", "content": "内容"}。三种核心角色：
+- system：设定 AI 的行为边界和能力（"你是一个严谨的 Python 后端面试官..."）
+- user：用户的问题或指令
+- assistant：模型的回答
+
+它解决 Agent 工程里的什么痛点： Agent 的多轮对话、上下文管理、Function Calling 的工具调用历史，全部依赖 messages 数组。Agent 的"记忆"本质上就是把过去所有轮次的 user/assistant/tool 消息不断追加到这个数组里，每次请求原样带上。
+
+今天为什么必须学： 今天写的 LLMClient.chat_with_history() 方法要构建 messages 数组。如果搞不清楚 system prompt 放哪里、历史消息怎么拼、user prompt 是不是每次都要重复所有历史——Day 6-7 的 ReAct Agent 就直接没法学。
+
+新手最容易踩什么坑：
+- 每次都把 system prompt 当 user 消息发——模型会认为系统指令是"上一轮的对话内容"，遵守力度大降
+- history 不断累加不设上限 → 第 20 轮对话时 messages 可能有 20KB，token 消耗暴涨且模型开始遗忘早期指令
+
+---
+
+🎯 6 小时精细化路线
+
+
+┌──────┬───────────────────────────────────────┬──────────────────────────────────────┬────────────────────────────┐
+│ 时间 │               具体任务                │               预期产出               │         成功检查点         │
+├──────┼───────────────────────────────────────┼──────────────────────────────────────┼────────────────────────────┤
+│ 30   │ 读你所使用模型的 API 文档 Chat        │                                      │ 能画出请求体结构图：model  │
+│ min  │ Completion 章节（如 DeepSeek API      │ 理解 endpoint、必填字段、可选参数    │ + messages + temperature + │
+│      │ 文档）                                │                                      │  max_tokens                │
+├──────┼───────────────────────────────────────┼──────────────────────────────────────┼────────────────────────────┤
+│      │                                       │                                      │ 能分辨                     │
+│ 30   │ 用 curl 或 Postman 裸调一次           │ 看到真实的 JSON 请求体和响应体       │ choices[0].message.content │
+│ min  │ API（不在代码里），观察完整请求和响应 │                                      │  和                        │
+│      │                                       │                                      │ choices[0].finish_reason   │
+├──────┼───────────────────────────────────────┼──────────────────────────────────────┼────────────────────────────┤
+│ 30   │ 读 OpenAI 文档里 role 的三种取值和    │ 理解 stop / length / content_filter  │ 能解释为什么               │
+│ min  │ finish_reason 的所有可能值            │ 的区别                               │ finish_reason=length       │
+│      │                                       │                                      │ 时回答是截断的             │
+├──────┼───────────────────────────────────────┼──────────────────────────────────────┼────────────────────────────┤
+│ 30   │ 研究 temperature（0-2）和 top_p       │                                      │ 能说出 temperature=0 和    │
+│ min  │ 的含义——看一个直观的动画或博客        │ 理解"确定性输出"和"创造性输出"的区别 │ temperature=1.5            │
+│      │                                       │                                      │ 分别用于什么场景           │
+└──────┴───────────────────────────────────────┴──────────────────────────────────────┴────────────────────────────┘
+
+关联双链：[[OpenAI-compatible API]]、[[LLM messages 结构]]、[[环境变量与 API Key]]
+
+---
+
+下午 3 小时：手写核心代码（13:00–16:00）
+
+┌─────┬──────────────────────────────────────────────┬────────────────────────────┬──────────────────────────────┐
+│ 时  │                   具体任务                   │          预期产出          │          成功检查点          │
+│ 间  │                                              │                            │                              │
+├─────┼──────────────────────────────────────────────┼────────────────────────────┼──────────────────────────────┤
+│ 40  │ 创建 app/llm_client.py，封装 LLMClient       │ __init__ 接收 base_url/api │ python -c "from              │
+│ min │ 类的基本结构                                 │ _key/model，实现           │ app.llm_client import        │
+│     │                                              │ chat(prompt) 返回 str      │ LLMClient; print('ok')"      │
+├─────┼──────────────────────────────────────────────┼────────────────────────────┼──────────────────────────────┤
+│ 50  │ 实现 chat_with_history(messages) 方法，支持  │ 能传入自定义               │ 用 3 条不同 system prompt    │
+│ min │ system/user/assistant 完整 messages          │ messages，拿到回答         │ 测试，回答风格确实不同       │
+├─────┼──────────────────────────────────────────────┼────────────────────────────┼──────────────────────────────┤
+│ 40  │ 实现错误处理：区分 401（Key 错）、429（请求  │ 每种错误有独立 except 分支 │ 故意用错误 Key 调，输出      │
+│ min │ 太快）、500（服务端挂）、网络超时            │  + 中文错误提示            │ "认证失败，请检查            │
+│     │                                              │                            │ LLM_API_KEY" 而非裸奔 401    │
+├─────┼──────────────────────────────────────────────┼────────────────────────────┼──────────────────────────────┤
+│ 20  │ 写                                           │                            │ 第二问能引用第一问的内容（证 │
+│ min │ test_llm.py，模拟一个简单的多轮对话：system  │ 2 轮对话跑通，上下文保持   │ 明 history 生效了）          │
+│     │ 设角色 → user 问 → assistant 答 → user 追问  │                            │                              │
+├─────┼──────────────────────────────────────────────┼────────────────────────────┼──────────────────────────────┤
+│ 30  │ 更新 main.py，接入 LLMClient：输入提示词 →   │ 一个最小但完整的 LLM       │ python main.py → 输入问题 →  │
+│ min │ 调 LLM → Rich 美化输出回答                   │ 调用链路                   │ 打印 LLM 回复                │
+└─────┴──────────────────────────────────────────────┴────────────────────────────┴──────────────────────────────┘
+
+关联双链：[[LLMClient 封装]]、[[对话历史持久化]]、[[异常处理]]
+
+---
+
+晚上 1 小时：重构 + 笔记 + 自测（19:00–20:00）
+
+┌──────┬──────────────────────────────┬────────────────┬──────────────────────────────────────────────────────────┐
+│ 时间 │           具体任务           │    预期产出    │                        成功检查点                        │
+├──────┼──────────────────────────────┼────────────────┼──────────────────────────────────────────────────────────┤
+│      │ 检查                         │                │                                                          │
+│ 15   │ llm_client.py：每个函数有    │ 代码可交付     │ 随便找一个函数，能说出输入类型、输出类型、可能抛什么异常 │
+│ min  │ Type                         │                │                                                          │
+│      │ Hints、中文注释、docstring   │                │                                                          │
+├──────┼──────────────────────────────┼────────────────┼──────────────────────────────────────────────────────────┤
+│ 15   │ 整理 finish_reason 和        │ 两个知识点笔记 │ 每个笔记有 1 个代码示例 + 1 个踩坑警告                   │
+│ min  │ temperature 的笔记           │                │                                                          │
+├──────┼──────────────────────────────┼────────────────┼──────────────────────────────────────────────────────────┤
+│      │ 画一张 LLM API               │                │                                                          │
+│ 15   │ 调用的完整流程图：config →   │ 一张图         │ 每个箭头标了数据类型（str / dict / APIResponse）         │
+│ min  │ llm_client → h
+│ 10   │ 自测 3 道题                  │ 每题有答案草稿 │ 不确定的用 ? 标记                                        │
+│ min  │                              │                │                                                          │
+├──────┼──────────────────────────────┼────────────────┼──────────────────────────────────────────────────────────┤
+│      │ git add . + git commit -m    │                │                                                          │
+│ 5    │ "feat: add LLM client with   │ 一次干净的     │ git log 显示 3 条 commit                                 │
+│ min  │ multi-turn chat and error    │ commit         │                                                          │
+│      │ handling"                    │                │                                                          │
+└──────┴──────────────────────────────┴────────────────┴──────────────────────────────────────────────────────────┘
+
+关联双链：[[Git 提交规范]]、[[Python 类型注解]]
+
+---
+
+💻 今日代码实战
+
+关联知识：[[OpenAI-compatible API]]、[[LLM messages 结构]]、[[LLMClient 封装]]、[[对话历史持久化]]、[[异常处理]]
+
+app/llm_client.py
+
+今天的新文件——整个项目的核心模块：
+
+"""
+LLM 客户端模块：封装 OpenAI-compatible API 的调用、消息构建和错误处理。
+
+设计原则：
+    - 换模型只改 .env 里的 URL 和 Key，不动代码
+    - 同步和异步两种调用方式，调用方按需选择
+    - 错误分类：认证失败、速率限制、服务端错误、网络异常——各走各的提示
+    - system prompt 和 user prompt 分离，不混在一起
+"""
+
+from typing import Any
+
+import httpx
+
+from app.config import AppConfig
+from app.api_client import (
+    APIError,
+    NetworkError,
+    TimeoutError,
+    HTTPStatusError,
+)
+
+
+# ============================================================
+# 自定义异常 — LLM 层面的
+
+class LLMError(APIError):
+    """LLM API 特有的错误基类。"""
+    pass
+
+
+class AuthenticationError(LLMError):
+    """认证失败：API Key 错误、过期或未配置。
+
+    收到 401 时抛出。别去重试——Key 错了重试 100 次也还是错。
+    """
+    pass
+
+
+class RateLimitError(LLMError):
+    """速率限制：请求太快或额度用完。
+
+│ 时间 │           具体任务           │    预期产出    │                        成功检查点                        │
+├──────┼──────────────────────────────┼────────────────┼──────────────────────────────────────────────────────────┤
+│      │ 检查                         │                │                                                          │
+│ 15   │ llm_client.py：每个函数有    │ 代码可交付     │ 随便找一个函数，能说出输入类型、输出类型、可能抛什么异常 │
+│ min  │ Type                         │                │                                                          │
+│      │ Hints、中文注释、docstring   │                │                                                          │
+├──────┼──────────────────────────────┼────────────────┼──────────────────────────────────────────────────────────┤
+│ 15   │ 整理 finish_reason 和        │ 两个知识点笔记 │ 每个笔记有 1 个代码示例 + 1 个踩坑警告                   │
+│ min  │ temperature 的笔记           │                │                                                          │
+├──────┼──────────────────────────────┼────────────────┼──────────────────────────────────────────────────────────┤
+│      │ 画一张 LLM API               │                │                                                          │
+│ 15   │ 调用的完整流程图：config →   │ 一张图         │ 每个箭头标了数据类型（str / dict / APIResponse）         │
+│ min  │ llm_client → httpx → API →   │                │                                                          │
+│      │ 解析 → 返回                  │                │                                                          │
+├──────┼──────────────────────────────┼────────────────┼──────────────────────────────────────────────────────────┤
+│ 10   │ 自测 3 道题                  │ 每题有答案草稿 │ 不确定的用 ? 标记                                        │
+│ min  │                              │                │                                                          │
+├──────┼──────────────────────────────┼────────────────┼──────────────────────────────────────────────────────────┤
+│      │ git add . + git commit -m    │                │                                                          │
+│ 5    │ "feat: add LLM client with   │ 一次干净的     │ git log 显示 3 条 commit                                 │
+│ min  │ multi-turn chat and error    │ commit         │                                                          │
+│      │ handling"                    │                │                                                          │
+└──────┴──────────────────────────────┴────────────────┴──────────────────────────────────────────────────────────┘
+
+关联双链：[[Git 提交规范]]、[[Python 类型注解]]
+
+---
+
+💻 今日代码实战
+
+关联知识：[[OpenAI-compatible API]]、[[LLM messages 结构]]、[[LLMClient 封装]]、[[对话历史持久化]]、[[异常处理]]
+
+app/llm_client.py
+
+今天的新文件——整个项目的核心模块：
+
+"""
+LLM 客户端模块：封装 OpenAI-compatible API 的调用、消息构建和错误处理。
+
+设计原则：
+    - 换模型只改 .env 里
+    - 错误分类：认证失败、速率限制、服务端错误、网络异常——各走各的提示
+    - system prompt 和 user prompt 分离，不混在一起
+"""
+
+from typing import Any
+
+import httpx
+
+from app.config import AppConfig
+from app.api_client import (
+    APIError,
+    NetworkError,
+    TimeoutError,
+    HTTPStatusError,
+)
+
+
+# =====================
+
+
+class AuthenticationError(LLMError):
+    """认证失败：API Key 错误、过期或未配置。
+
+    收到 401 时抛出。别去重试——Key 错了重试 100 次也还是错。
+    """
+    pass
+
+
+class RateLimitError(LLMError):
+    """速率限制：请求太快或额度用完。
+
+    收到 429 时抛出。应该等几秒后重试，不要立即重试——否则越试越限。
+    """
+    pass
+
+
+class ModelError(LLMError):
+    """模型相关错误：模型不存在、不支持该参数等。"""
+    pass
+
+
+class ContentFilterError(LLMError):
+    """内容被安全策略拦截。"""
+    pass
+
+
+# ============================================================
+# LLM 客户端
+# ============================================================
+
+# OpenAI-compatible chat completion 的消息角色
+VALID_ROLES = {"system", "user", "assistant"}
+
+# finish_reason 的含义速查表
+FINISH_REASON_MEANING = {
+    "stop": "正常完成（模型自然结束输出）",
+    "length": "达到 max_tokens 限制，输出被截断——需要增大 max_tokens 或缩短 system prompt",
+    "content_filter": "输出被内容安全策略拦截——提示词或回答触发了敏感词过滤",
+    "tool_calls": "模型决定调用工具（本周不讲，Week 6 会用到）",
+    "function_call": "旧版 Function Calling（已废弃，但仍可能看到）",
+}
+
+
+class LLMClient:
+    """OpenAI-compatible LLM API 客户端。
+
+        cfg = get_config()
+        client = LLMClient(cfg)
+
+        # 单轮对话
+        answer = client.chat("什么是 RAG？")
+        print(answer)
+
+        # 多轮对话（带历史）
+        messages = [
+            {"role": "system", "content": "你是一个 Python 后端导师，用中文回答。"},
+            {"role": "user", "content": "什么是 asyncio？"},
+        ]
+        answer = client.chat_with_history(messages)
+        messages.append({"role": "assistant", "content": answer})
+        messages.append({"role": "user", "content": "给我一个例子"})
+        answer2 = client.chat_with_history(messages)
+
+    关键参数说明:
+        - temperature: 0=确定性强（代码生成/分类），1=创造性（文案/头脑风暴），默认 0.7
+        - max_tokens: 最大输出 token 数，默认 2048。设太小回答会被截断
+    """
+
+    # OpenAI-compatible chat completion 的标准端点路径
+    CHAT_ENDPOINT = "/v1/chat/completions"
+
+    def __init__(self, config: AppConfig):
+        """从 AppConfig 初始化客户端。
+
+        Args:
+            config: 来自 app.config.get_config() 的配置对象。
+        """
+        self._base_url = config.base_url.rstrip("/")  # 去掉尾部斜杠，避免 //v1 双斜杠
+        self._api_key = config.api_key
+        self._model = config.model
+
+        # LLM API 推理时间长（10-60 秒常见），read timeout 设大一些
+        self._client = httpx.Client(
+            timeout=httpx.Timeout(connect=10.0, read=90.0),
+        )
+
+    def close(self) -> None:
+        """释放 HTTP 连接资
+
+    def __exit__(self, *args: Any) -> None:
+        self.close()
+
+    # ----------------------------------------------------------
+    # 公开方法
+    # ----------------------------------------------------------
+
+    def chat(
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
+    ) -> str:
+        """单轮对话：发一个 user prompt，返回模型回答文本。
+
+        如果有 system 参数，会自动构建 system + user 两条消息。
+        如果没有 system，只发一条 user 消息（模型用默认行为）。
+
+        Args:
+            prompt: 用户输入的问题或指令。
+            system: 可选的系统提示词，用于设定 AI 的角色。
+            temperature: 0-2，越低越确定，越高越有创造性。
+            max_tokens: 最大输出 token 数。
+
+        Returns:
+            模型回答的纯文本内容。
+
+        Raises:
+            AuthenticationError: API Key 错误
+            RateLimitError: 请求频率过高
+            ModelError: 模型不存在
+            NetworkError: 网络不通
+            TimeoutError: 响应超时
+        """
+        messages: list[dict[str, str]] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+
+        return self.chat_with_history(messages, temperature=temperature, max_tokens=max_tokens)
+
+    def chat_with_history(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float =
+        max_tokens: int = 2048,
+    ) -> str:
+        """多轮对话：传入完整的 messages 历史，返回模型回答。
+
+        messages 格式必须是 [{"role": "...", "content": "..."}, ...]。
+        role 必须是 "system"、"user" 或 "assistant" 之一。
+
+        Args:
+            messages: 完整的消息列表，包括 system/user/assistant 所有历史。
+            temperature: 0-2，越低越确定。
+            max_tokens: 最大输出 token 数。
+
+        Returns:
+            模型回答的纯文本内容。
+
+        Raises:
+            ValueError: messages 格式不正确
+            AuthenticationError: 认证失败
+            RateLimitError: 速率限制
+            ModelError: 模型不存在
+            NetworkError: 网络不通
+            TimeoutError: 超时
+            LLMError: 其他 LLM API 错误
+        """
+        # ---- 参数校验 ----
+        self._validate_messages(messages)
+
+        # ---- 构建请求 ----
+        url = f"{self._base_url}{self.CHAT_ENDPOINT}"
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self._model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+
+        # ---- 发送请求 ----
+        try:
+            response = self._client.post(url, headers=headers, json=payload)
+        except httpx.ConnectError as e:
+            raise NetworkError(
+                f"无法连接到 LLM API: {self._base_url}\n"
+                f"检查: 1) 网
+            ) from e
+        except httpx.ReadTimeout as e:
+            raise TimeoutError(
+                f"LLM API 响应超时（90 秒）: {self._base_url}\n"
+                f"可能原因: 模型推理慢、prompt 太长、服务端负载高\n"
+                f"建议: 缩短 prompt 或换更快的模型"
+            ) from e
+        except httpx.RequestError as e:
+            raise NetworkError(f"LLM API 请求失败: {e}") from e
+
+        # ---- 处理错误状态码 ----
+        self._handle_error_status(response)
+
+        # ---- 解析响应 ----
+        return self._parse_response(response)
+
+    # ----------------------------------------------------------
+    # 内部方法
+    # ----------------------------------------------------------
+
+    def _validate_messages(self, messages: list[dict[str, str]]) -> None:
+        """校验 messages 格式。
+
+        不在这里做复杂校验——只检查最基本的格式问题。
+        深层语义问题（如 system prompt 放最后）只警告不报错。
+        """
+        if not isinstance(messages, list):
+            raise ValueError(f"messages 必须是 list，不能是 {type(messages).__name__}")
+
+        if len(messages) == 0:
+            raise ValueError("messages 不能为空——至少需要一条 user 消息")
+
+        for i, msg in enumerate(messages):
+            if not isinstance(msg, dict):
+                raise ValueError(
+                    f"messages[{i}] 必须是 dict，不能是 {type(msg).__name__}。\n"
+                    f"正确格式: {{\"role\": \"user\", \"content\": \"问题\"}}"
+                )
+
+            if "role" not in msg:
+                raise ValueError(
+                    f"messages[{i}] 缺少 'role' 字段。\n"
+                    f"当前内容: {msg}"
+                )
+
+            if "content" not in msg:
+                raise ValueError(
+                    f"messages[{i}] 缺少 'content' 字段。\n"
+                    f"当前内容: {msg}"
+                )
+
+            role = msg["role"]
+            if role not in VALID_ROLES:
+                raise ValueError(
+                    f"messages[{i}] 的 role='{role}' 不合法。\n"
+                    f"合法值: {', '.join(sorted(VALID_ROLES))}"
+                )
+
+    def _handle_error_status(self, response: httpx.Response) -> None:
+        """根据 HTTP 状态码分类处理错误。
+
+        每种状态码对应不同的用户操作建议——不让用户看到 401 后不知道该干什么。
+        """
+        if response.is_success:
+            return  # 2xx，正常
+
+        status = response.status_code
+        # 尝试从响应体获取服务端给出的错误信息
+        error_detail = self._extract_error_detail(response)
+
+        if status == 401:
+            raise AuthenticationError(
+                f"认证失败（401）：API Key 无效或已过期。\n"
+                f"当前 Base URL: {self._base_url}\n"
+                f"当前 API Key 前缀: {self._api_key[:8]}****\n"
+                f"检查: 1) .env 中 LLM_API_KEY 是否正确 2) Key 是否已过期\n"
+                f"服务端信息: {error_detail}"
+            )
+        elif status == 403:
+            raise AuthenticationError(
+                f"访问被拒绝（403）：API Key 无权访问该资源。\n"
+                f"可能原因: 账户未激活、区域限制、权限不足\n"
+                f"服务端信息: {error_detail}"
+            )
+        elif status == 429:
+            raise RateLimitError(
+                f"速率限制（429）：请求太频繁或 Token 额度用完。\n"
+                f"建议: 等 3-5 秒后重试；如果持续出现，检查账户余额和额度\n"
+                f"服务端信息: {error_detail}"
+            )
+        elif status == 404:
+            raise ModelError(
+                f"端点或模型不存在（404）。\n"
+                f"当前 Base URL: {self._base_url}\n"
+                f"当前 Model: {self._model}\n"
+                f"检查: LLM_BASE_URL 和 LLM_MODEL 是否正确\n"
+                f"服务端信息: {error_detail}"
+            )
+        elif 400 <= status < 500:
+            raise LLMError(
+                f"请求参数错误（{status}）：请求体格式或参数值不正确。\n"
+                f"服务端信息: {error_detail}"
+            )
+        elif status >= 500:
+            raise LLMError(
+                f"LLM 服务端错误（{status}）：服务器内部问题，和你的请求无关。\n"
+                f"建议: 等 10 秒后重试；如果持续出现，检查服务商状态页\n"
+                f"服务端信息: {error_detail}"
+            )
+        else:
+            raise LLMError(f"未知 HTTP 错误（{status}）: {error_detail}")
+
+    def _extract_error_detail(self, response: httpx.Response) -> str:
+        """从错误响应体中提取服务端给出的错误描述。
+
+        不是所有 LLM 服务商都返回标准的 error.message 格式，
+        解析不到也不报错——返回原始文本即可。
+        """
+        try:
+            body = response.json()
+            # OpenAI-compatible 的错误格式: {"error": {"message": "...", "type": "..."}}
+            if isinstance(body, dict) and "error" in body:
+                error = body["error"]
+                if isinstance(error, dict):
+                    msg = error.get("message", "")
+                    t = error.get("type", "")
+                    return f"{t}: {msg}" if t else msg
+                return str(error)
+            return response.text[:300]  # 截断，防止返回整页 HTML
+        except Exception:
+            return response.text[:300]
+
+    def _parse_response(self, response: httpx.Response) -> str:
+        """从成功响应中提取模型回答内容。
+
+        同时检查 finish_reason——如果是 'length'，说明回答被截断了，
+        要在返回内容末尾加警告，避免用户把不完整的回答当完整结果。
+        """
+        try:
+            body = response.json()
+        except Exception as e:
+            raise LLMError(
+                f"LLM API 返回的不是有效 JSON。\n"
+                f"原始响应前 200 字符: {response.text[:200]}"
+            ) from e
+
+        # 检查 choices 数组
+        choices = body.get("choices")
+        if not choices or not isinstance(choices, list):
+            raise LLMError(
+                f"LLM 响应中缺少 'choices' 字段或格式不对。\n"
+                f"响应体: {body}"
+            )
+
+        first_choice = choices[0]
+        message = first_choice.get("message")
+        if not message or not isinstance(message, dict):
+            raise LLMError(
+                f"LLM 响应中缺少 'choices[0].message' 字段。\n"
+                f"响应体: {body}"
+            )
+
+        content: str = message.get("content", "")
+        finish_reason: str = first_choice.get("finish_reason", "unknown")
+
+        # ---- finish_reason 检查 ----
+        if finish_reason == "length":
+            # 回答被截断了——在末尾加警告
+            warning = (
+                f"\n\n⚠️ [警告] 输出被截断（finish_reason=length）。"
+                f"当前 max_tokens 不足以容纳完整回答。"
+                f"建议增大 max_tokens 参数后重试。"
+            )
+            content += warning
+        elif finish_reason == "content_filter":
+            raise ContentFilterError(
+                f"输出被内容安全策略拦截（finish_reason=content_filter）。\n"
+                f"你的输入或模型的输出触发了安全过滤。\n"
+                f"建议: 检查提示词中是否有敏感内容"
+            )
+
+        # ---- Token 用量信息（可选的调试信息） ----
+        usage = body.get("usage", {})
+        if usage:
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
+            total_tokens = usage.get("total_tokens", 0)
+            # 成本信息可以帮助你建立"每次调用花了多少钱"的直觉
+            # 在终端打印但不在返回值里加——返回值应该是纯回答文本
+            # （Day 5 会在 CLI 里通过 Rich 展示这些信息）
+
+        return content
+
+---
+
+更新 main.py（Day 3 版本）
+
+在 Day 1 的 main.py 基础上，加入 LLMClient 调用：
+
+"""
+week1_llm_cli 程序入口 — Day 3 版本：接入 LLM 调用。
+
+进化记录：
+    Day 1: 配置读取 + 历史记录验证
+    Day 2: HTTP API Client（app/api_client.py）
+    Day 3: LLM Client 接入，实现「输入提示词 → 调 LLM → 输出回答」
+"""
+
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from app.config import get_config, ConfigError
+from app.llm_client import (
+    LLMClient,
+    AuthenticationError,
+    RateLimitError,
+    ModelError,
+    LLMError,
+)
+from app.api_client import NetworkError, TimeoutError
+
+
+def main() -> None:
+    """Day 3: 最小 LLM 调用链路验证。"""
+    print("=" * 50)
+    print("  week1_llm_cli — Day 3 LLM 调用验证")
+    print("=" * 50)
+
+    # ---- 1. 加载配置 ----
+    print("\n[1/3] 加载配置...")
+    try:
+        cfg = get_config()
+        print(f"  ✅ Base URL: {cfg.base_url}")
+        print(f"  ✅ Model: {cfg.model}")
+        print(f"  ✅ API Key: {cfg.api_key[:8]}****")
+    except ConfigError as e:
+        print(f"  ❌ 配置错误:\n{e}")
+        return
+
+    # ---- 2. 初始化 LLMClient ----
+    print("\n[2/3] 初始化 LLM 客户端...")
+    try:
+        client = LLMClient(cfg)
+        print("  ✅ LLMClient 就绪")
+    except Exception as e:
+        print(f"  ❌ 初始化失败: {e}")
+        return
+
+    # ---- 3. 发送测试请求 ----
+    print("\n[3/3] 发送测试请求...")
+    print("  📤 Prompt: 用一句话解释什么是 RAG")
+
+    try:
+        answer = client.chat(
+            prompt="用一句话解释什么是 RAG（检索增强生成）",
+            system="你是一个 AI 技术导师，用简洁准
+        print(f"\n  ❌ 认证失败:\n{e}")
+        return
+    except RateLimitError as e:
+        print(f"\n  ❌ 速率限制:\n{e}")
+        return
+    except ModelError as e:
+        print(f"\n  ❌ 模型错误:\n{e}")
+        return
+    except NetworkError as e:
+        print(f"\n  ❌ 网络错误:\n{e}")
+        return
+    except TimeoutError as e:
+        print(f"\n  ❌ 响应超时:\n{e}")
+        return
+    except LLMError as e:
+        print(f"\n  ❌ LLM 错误:\n{e}")
+        return
+    finally:
+        client.close()
+
+    print("\n" + "=" * 50)
+    print("  ✅ Day 3 验证完成！LLM 调用链路通畅")
+    print("  👉 下一步：Day 4 异步并发调用 + 耗时统计")
+    print("=" * 50)
+
+
+if __name__ == "__main__":
+    main()
+
+---
+
+test_llm.py（多轮对话演示脚本）
+
+"""
+Day 3 多轮对话演示：验证 LLMClient 的 chat_with_history 方法。
+
+运行方式：
+    python test_llm.py
+
+这个脚本模拟一个真实的对话场景：
+    1. 设定角色（system prompt）→ AI 扮演 Python 导师
+    2. 用户问一个问题 → AI 回答
+    3. 用户追问一个细节 → AI 基于上文回答（这是关键——需要 history）
+    4. 打印完整对话历史
+"""
+
+from app.config import get_config, ConfigError
+from app.llm_client import LLMClient, LLMError
+
+
+def demo_multi_turn() -> None:
+    """演示多轮对话：验证 history 是否生效。"""
+    print("=" * 60)
+    print("  多轮对话演示 — 验证上下文保持能力")
+    print("=" * 60)
+
+    # 加载配置
+    try:
+        cfg = get_config()
+    except ConfigError as e:
+        print(f"配置错误: {e}")
+        return
+
+    # 初始化 messages——第一轮只有 system + user
+    messages: list[dict[str, str]] = [
+        {
+            "role": "system",
+            "content": (
+                "你是一个 Python 后端导师，语气专业但友好。"
+                "用中文回答，代码示例保持英文。"
+                "每次回答先给出结论，再给代码示例，最后提醒一个常见错误。"
+            ),
+        },
+        {"role": "user", "content": "Python 的 @dataclass 装饰器有什么用？"},
+    ]
+
+    with LLMClient(cfg) as client:
+        # ---- 第一轮 ----
+        print("\n💬 第一轮对话")
+        print(f"   User: {messages[-1]['content']}")
+        try:
+            answer1 = client.chat_with_history(messages)
+            print(f"   Assistant: {answer1[:200]}..." if len(answer1) > 200 else f"   Assistant: {answer1}")
+
+            # 把 AI 的回答追加到 messages——这是多轮对话的关键步骤
+            messages.append({"role": "assistant", "content": answer1})
+        except LLMError as e:
+            print(f"   ❌ 第一轮失败: {e}")
+            return
+
+        # ---- 第二轮：追问（依赖第一轮上下文） ----
+        messages.append({
+            "role": "user",
+            "content": "那和 Pydantic 的 BaseModel 比，什么时候用哪个？",
+        })
+
+        print(f"\n💬 第二轮对话（追问）")
+        print(f"   User: {messages[-1]['content']}")
+        try:
+            answer2 = client.chat_with_history(messages)
+            print(f"   Assistant: {answer2[:200]}..." if len(answer2) > 200 else f"   Assistant: {answer2}")
+
+            messages.append({"role": "assistant", "content": answer2})
+        except LLMError as e:
+            print(f"   ❌ 第二轮失败: {e}")
+            return
+
+    # ---- 打印完整对话历史 ----
+    print(f"\n{'=' * 60}")
+    print(f"  完整对话历史（共 {len(messages)} 条消息）")
+    print(f"{'=' * 60}")
+    for i, msg in enumerate(messages):
+        role = msg["role"]
+        content_preview = msg["content"][:80]
+        icon = {"system": "⚙️", "user": "👤", "assistant": "🤖"}.get(role, "❓")
+        print(f"  {icon} [{i}] {role}: {content_preview}...")
+
+    print(f"\n  ✅ 多轮对话演示完成")
+    print(f"  👆 观察第二轮的答案——它应该提到了 dataclass 和 Pydantic 的对比")
+    print(f"     如果它不知道上下文，说明 history 没传进去")
+
+
+if __name__ == "__main__":
+    demo_multi_turn()
+
+---
+
+运行方式
+
+# 1. 确保 .env 已配置（Day 1 创建的）
+#    LLM_API_KEY=你的Key
+#    LLM_BASE_URL=https://api.deepseek.com/v1
+#    LLM_MODEL=deepseek-chat
+
+# 2. 激活虚拟环境
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
+
+# 3. 运行 Day 3 主验证
+python main.py
+
+# 4. 运行多轮对话演示
+python test_llm.py
+
+预期输出：
+
+==================================================
+  week1_llm_cli — Day 3 LLM 调用验证
+==================================================
+
+[1/3] 加载配置...
+  ✅ Base URL: https://api.deepseek.com/v1
+  ✅ Model: deepseek-chat
+  ✅ API Key: sk-69c74****
+
+[2/3] 初始化 LLM 客户端...
+  ✅ LLMClient 就绪
+
+[3/3] 发送测试请求...
+  📤 Prompt: 用一句话解释什么是 RAG
+
+  📥 回答:
+────────────────────────────────────────
+  RAG（检索增强生成）是一种在 LLM 生成回答前先从外部
+  知识库检索相关文档，将检索结果作为上下文注入 Prompt
+  的技术，用于缓解模型幻觉和知识时效性问题。
+────────────────────────────────────────
+
+  ✅ LLM 调用成功！
+
+==================================================
+  ✅ Day 3 验证完成！LLM 调用链路通畅
+==================================================
+
+---
+
+你需要观察什么
+  ✅ API Key: sk-69c74****
+
+[2/3] 初始化 LLM 客户端...
+  ✅ LLMClient 就绪
+
+[3/3] 发送测试请求...
+  📤 Prompt: 用一句话解释什么是 RAG
+
+  📥 回答:
+────────────────────────────────────────
+  RAG（检索增强生成）是一种在 LLM 生成回答前先从外部
+  知识库检索相关文档，将检索结果作为上下文注入 Prompt
+  的技术，用于缓解模型幻觉和知识时效性问题。
+────────────────────────────────────────
+
+  ✅ LLM 调用成功！
+
+==================================================
+  ✅ Day 3 验证完成！LLM 调用链路通畅
+==================================================
+
+---
+
+你需要观察什么
+
+1. system prompt 的效果：把 system="你是一个 AI 技术导师..." 改成 system="你是一个说唱歌手，用押韵的方式回答问题"，同样的 prompt 输出风格天差地别——这说明 system 角色确实在控制 AI 的行为模式。
+2. temperature 的影响：同一个 prompt，temperature=0 跑两次 → 答案几乎一样。temperature=1.5 跑两次 → 答案可能完全不同。代码生成和分类任务的 temperature 应该接近 0。
+3. 多轮对话的上下文：test_llm.py 的第二轮追问 "什么时候用哪个"——如果 AI 不知道第一轮在讨论 dataclass，它会回答一个泛泛的对比。如果它明确提到了 dataclass，说明 history 传对了。
+4. 错误分类的处理：故意把 .env 里的 LLM_API_KEY 改成 sk-deadbeef，看看是不是抛出 AuthenticationError 而不是裸奔的 HTTPStatusError。
+
+---
+
+可扩展任务
+
+1. 支持流式输出（streaming）：给 chat_with_history 增加 stream: bool = False 参数。当 stream=True 时，设置请求体 "stream": true，解析 SSE（Server-Sent Events）流，逐 token 打印回答。这需要 httpx.stream() 方法。
+2. 增加 Token 计数和成本估算：在 _parse_response 里已经拿到了 usage 信息。计算调用成本——以 DeepSeek 为例（输入约 ¥1/百万 token，输出约 ¥2/百万 token），在每次回答后打印 💰 本次消耗: 输入 X tokens + 输出 Y tokens ≈ ¥Z。
+3. 实现自动重试：RateLimitError 和 5xx 错误应该自动重试。遇到 429 等 Retry-After 头指定的秒数，没有则用指数退避（1s → 2s → 4s → 8s，最多 3 次）。
+
+---
+
+🎯 每日自我验收题
+
+第 1 题（概念解释）： 在 OpenAI-compatible API 的 messages 中，system、user、assistant 三种角色分别用来做什么？如果我把 system prompt 放在 messages 数组的最后一个位置（而不是第一个），会发生什么？模型还能遵守我的系统指令吗？为什么？关联双链：[[LLM messages 结构]]、[[OpenAI-compatible API]]。
+
+---
+
+第 2 题（小实现 / 设计）： 给 LLMClient 增加一个方法 count_tokens(messages: list[dict[str, str]]) -> int，估算一段 messages 会消耗多少 token。要求：
+
+- 不需要引入 tiktoken 库（Week 4 再学 tokenization）
+- 用一个粗略规则估算：中文约 1.5 字符/token，英文约 4 字符/token，混合文本取平均值约 2.5 字符/token
+- 对 messages 列表里所有 content 求和估算
+- 方法有完整 Type Hints 和 docstring，能正确标注估算误差范围（±20%）
+
+---
+
+第 3 题（代码改错 / Bug 排查）： 下面代码在连续对话第 15 轮时会出现什么问题？找出至少 2 个问题并给出修复方案：
+
+messages = [{"role": "system", "content": "你是 Python 导师"}]
+
+while True:
+    user_input = input("你: ")
+    messages.append({"role": "user", "content": user_input})
+
+    response = httpx.post(
+        "https://api.deepseek.com/v1/chat/completions",
+        headers={"Authorization": f"Bearer {api_key}"},
+        json={"model": "deepseek-chat", "messages": messages},
+    )
+    answer = response.json()["choices"][0]["message"]["content"]
+    messages.append({"role": "assistant", "content": answer})
+    print(f"AI: {answer}")
+
+提示：从 token 消耗、上下文窗口、费用控制、finish_reason 几个角度排查。关联双链：[[LLM messages 结构]]、[[API 超时处理]]。
+
+---
+
+📥 明日同步接口
+
+请你明天把下面这段填好发给我：
+
+【Day 3 学习反馈】
+    print(f"AI: {answer}")
+
+提示：从 token 消耗、上下文窗口、费用控制、finish_reason 几个角度排查。关联双链：[[LLM messages 结构]]、[[API 
+    response = httpx.post(
+        "https://api.deepseek.com/v1/chat/completions",
+        headers={"Authorization": f"Bearer {api_key}"},
+        json={"model": "deepseek-chat", "messages": messages},
+    )
+    answer = response.json()["choices"][0]["message"]["content"]
+    messages.append({"role": "assistant", "content": answer})
+    print(f"AI: {answer}")
+
+提示：从 token 消耗、上下文窗口、费用控制、finish_reason 几个角度排查。关联双链：[[LLM messages 结构]]、[[API 超时处理]]。
+
+)

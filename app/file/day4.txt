@@ -1,0 +1,450 @@
+1. [[Python 异步编程]] — Agent 性能的底层引擎
+
+它是什么： async def / await / asyncio.run() 是 Python 的协程机制。协程在单线程里实现"协作式调度"——一个协程在等待 IO（网络请求、文件读写）时，主动让出控制权给别的协程，等 IO 完成后再被唤醒继续。asyncio.gather() 让多个协程并发执行，总耗时约等于最慢的那个。
+
+它解决 Agent 工程里的什么痛点： Agent 的核心操作全是 IO 密集：调 LLM 生成回答（等 5-30 秒）、查向量数据库（等 1-3 秒）、调外部工具 API（等 0.5-2 秒）。如果串行执行，一个 5 步的 Agent 工作流可能等 30 秒。用 asyncio.gather 把互不依赖的步骤并发跑，总耗时降到最慢的那一步。IO 等待时间能被重叠，这就是异步在 Agent 里的意义。
+
+今天为什么必须学： 明天（Day 5）要写交互式 CLI，Day 6 要重构，Week 2 的 FastAPI 路由默认就是 async def。如果不理解异步，FastAPI 里写 async def 却做同步阻塞调用，会把整个服务的并发能力废掉。
+
+新手最容易踩什么坑：
+- 认为「异步 = 多线程 = 更快」——异步解决的是 IO 等待的浪费，不是 CPU 计算；纯 CPU 任务用异步反而更慢
+- 在 async def 里调用同步阻塞函数（如 httpx.Client 而不是 AsyncClient），把整个事件循环卡死
+- 忘了 await——拿到的是一个 coroutine 对象而不是结果，报 RuntimeWarning: coroutine was never awaited
+
+---
+
+2. [[asyncio.gather 并发]] + [[装饰器]] — 量化性能的武器
+
+它是什么： asyncio.gather(*coroutines) 把多个协程打包成"一起跑"，返回所有结果组成的列表。装饰器（@timer）是一个函数，接收另一个函数，在不改动原函数代码的前提下给它增加耗时统计功能。
+
+它解决 Agent 工程里的什么痛点： 没有计时，你无法判断"加个缓存值不值""并发到底快了多少"。@timer 装饰器让你给任意函数加耗时统计，这是性能优化和面试答辩时"我做了优化，快了多少倍"的证据来源。
+
+今天为什么必须学： 今天要做一个硬实验——串行调 3 个 LLM prompt vs 并发调 3 个，用 @timer 记录真实耗时差异。这个数字（比如"并发比串行快 2.8 倍"）会成为你 Week 7 面试时讲异步优势的具体论据。
+
+新手最容易踩什么坑：
+- 装饰器里不保留原函数的元信息（名字、docstring），help() 和 functools.wraps 乱套
+- 计时装饰器只包住函数定义，但忘了 LLM 调用是异步的——同步装饰器包 async def 拿不到正确耗时
+
+
+🎯 6 小时精细化路线
+
+上午 2 小时：看文档 + 最小验证（09:00–11:00）
+
+┌─────┬────────────────────────────┬──────────────────────────────────┬──────────────────────────────────────────┐
+│ 时  │          具体任务          │             预期产出             │                成功检查点                │
+│ 间  │                            │                                  │                                          │
+├─────┼────────────────────────────┼──────────────────────────────────┼──────────────────────────────────────────┤
+│ 40  │ 读 Python 官方 asyncio     │ 理解协程、任务、事件循环三者的关 │ 能画出「协程被调度到事件循环执行」的示意 │
+│ min │ 文档的 Coroutines 和 Tasks │ 系                               │ 图                                       │
+│     │  两节                      │                                  │                                          │
+├─────┼────────────────────────────┼──────────────────────────────────┼──────────────────────────────────────────┤
+│     │ 跑一个最小异步 demo：两个  │                                  │                                          │
+│ 30  │ await asyncio.sleep(1) 用  │ 看到并发 1 秒 vs 串行 2          │ 用 time.perf_counter()                   │
+│ min │ gather 并发，对比串行      │ 秒的真实差异                     │ 记录并打印两种耗时                       │
+│     │ time.sleep(1) ×2           │                                  │                                          │
+├─────┼────────────────────────────┼──────────────────────────────────┼──────────────────────────────────────────┤
+│ 30  │ 读 functools.wraps 文档，  │ 理解装饰器会"覆盖"原函数元信息   │ 写一个 @timer 装饰器，检查被装饰函数的   │
+│ min │ 理解装饰器为什么需要它     │                                  │ __name__ 是否被保留                      │
+├─────┼────────────────────
+│     │                            │ client.get() 的用法              │                                          │
+└─────┴────────────────────────────┴──────────────────────────────────┴──────────────────────────────────────────┘
+
+关联双链：[[Python 异步编程]]、[[asyncio.gather 并发]]、[[装饰器]]、[[httpx 异步请求]]
+
+---
+
+下午 3 小时：手写核心代码（13:00–16:00）
+
+┌──────┬──────────────────────────────┬──────────────────────┬────────────────────────────────────────────────────┐
+│ 时间 │           具体任务           │       预期产出       │                     成功检查点                     │
+├──────┼──────────────────────────────┼──────────────────────┼────────────────────────────────────────────────────┤
+│ 40   │ 创建 app/timer.py，写 @timer │                      │                                                    │
+│ min  │  装饰器（用                  │ 能统计任意函数耗时   │ 用一个 sleep 函数验证，耗时误差 < 0.1 秒           │
+│      │ functools.wraps）            │                      │                                                    │
+├──────┼──────────────────────────────┼──────────────────────┼────────────────────────────────────────────────────┤
+│ 50   │ 给 LLMClient 增加异步方法    │                      │ asyncio.run(client.async_chat("你好"))             │
+│ min  │ async_chat（用               │ 异步版 LLM 调用      │ 返回正常回答                                       │
+│      │ httpx.AsyncClient）          │                      │                                                    │
+├──────┼──────────────────────────────┼──────────────────────┼────────────────────────────────────────────────────┤
+│ 50   │ 写 benchmark.py：串行调 3 个 │                      │                                                    │
+│ min  │  prompt vs asyncio.gather    │ 一份真实耗时对比报告 │ 并发的总耗时明显 < 串行耗时之和                    │
+│      │ 并发调 3 个，分别计时        │                      │                                                    │
+├──────┼──────────────────────────────┼──────────────────────┼────────────────────────────────────────────────────┤
+│ 40   │ 扩展 benchmark：分别测       │ 一张耗时 vs          │                                                    │
+│ min  │ 1/3/5/10                     │ 并发数的数据         │ 能解释为什么并发数继续增大后收益递减（服务端限流） │
+│      │ 个并发请求的耗时，观察趋势   │                      │                                                    │
+└──────┴──────────────────────────────┴──────────────────────┴────────────────────────────────────────────────────┘
+
+关联双链：[[LLM API 并发调用]]、[[异步函数计时装饰器]]
+
+---
+
+晚上 1 小时：重构 + 笔记 + 自测（19:00–20:00）
+
+┌──────┬────────────────────────────────────────┬──────────────────────┬──────────────────────────────────────────┐
+│ 时间 │                具体任务                │       预期产出       │                成功检查点                │
+├──────┼────────────────────────────────────────┼──────────────────────┼──────────────────────────────────────────┤
+│ 15   │ 检查 timer.py 是否用                   │ 代码规范             │ help(被装饰函数) 能看到原函数 docstring  │
+│ min  │ functools.wraps，异步装饰器是否正确    │                      │                                          │
+├──────┼────────────────────────────────────────┼──────────────────────┼──────────────────────────────────────────┤
+│ 15   │ 整理「并发 vs 并行」「IO 密集 vs CPU   │ 一个知识点笔记       │ 能用 3 句话向别人解释清楚                │
+│ min  │ 密集」的笔记                           │                      │                                          │
+├──────┼────────────────────────────────────────┼──────────────────────┼──────────────────────────────────────────┤
+│ 15   │ 记录今天的 benchmark                   │                      │                                          │
+│ min  │ 数据到笔记（串行耗时 / 并发耗时 /      │ 一份带数字的性能记录 │ 数据可复现（记录模型、prompt、网络环境） │
+│      │ 加速比）
+├──────┼────────────────────────────────────────┼──────────────────────┼──────────────────────────────────────────┤
+│ 10   │ 自测 3 道题                            │ 每题有答案草稿       │ 不确定的用 ? 标记                        │
+│ min  │                                        │                      │                                          │
+├──────┼────────────────────────────────────────┼──────────────────────┼──────────────────────────────────────────┤
+│ 5    │ git add . + git commit -m "feat: add   │                      │                                          │
+│ min  │ async chat and benchmark with timer    │ 一次干净 commit      │ git log 显示 4 条 commit                 │
+│      │ decorator"                             │                      │                                          │
+└──────┴────────────────────────────────────────┴──────────────────────┴──────────────────────────────────────────┘
+
+关联双链：[[Git 提交规范]]、[[Python 异步编程]]
+
+---
+
+💻 今日代码实战
+
+关联知识：[[Python 异步编程]]、[[asyncio.gather 并发]]、[[装饰器]]、[[LLM API 并发调用]]、[[异步函数计时装饰器]]
+
+app/timer.py
+
+今天的新文件——可复用的计时装饰器：
+
+"""
+计时工具模块：提供 @timer 装饰器，统计函数执行耗时。
+
+支持两种函数：
+    - 同步函数（def）
+    - 异步函数（async def）
+
+用法：
+    @timer
+    def sync_func():
+        ...
+
+    @timer
+    async def async_func():
+        ...
+
+装饰器是 Python 的一个核心特性——它本质上是一个"接收函数、返回函数"的高阶函数。
+理解装饰器，才能理解 FastAPI 的 @app.get("/")、@router.post("/xxx") 这些路由语法。
+"""
+
+import time
+
+def timer(func: F) -> F:
+    """统计函数执行耗时的装饰器。
+
+    被装饰的函数执行完后，会打印：
+        [计时] 函数名 (参数) 耗时 1.23 秒
+
+    注意：
+        - @wraps(func) 保留原函数的 __name__ 和 __doc__，
+          否则 help() 和调试器会看到错误的元信息。
+        - 这里用了 perf_counter() 而不是 time.time()，
+          因为 perf_counter() 是单调时钟，不受系统时间调整影响。
+
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+            start = time.perf_counter()
+            # await 异步函数执行
+            result = await func(*args, **kwargs)
+            elapsed = time.perf_counter() - start
+            print(f"[计时] {func.__name__} 耗时 {elapsed:.2f} 秒")
+            return result
+        return async_wrapper  # type: ignore[return-value]
+
+    # 同步包装器
+    @wraps(func)
+    def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        elapsed = time.perf_counter() - start
+        print(f"[计时] {func.__name__} 耗时 {elapsed:.2f} 秒")
+        return result
+    return sync_wrapper  # type: ignore[return-value]
+
+
+def _is_async(func: Callable[..., Any]) -> bool:
+    """判断函数是否是异步函数（async def 定义）。
+
+    原理：async def 定义的函数在调用时返回 coroutine 对象，
+    inspect.iscoroutinefunction() 能准确判断。
+    """
+    import inspect
+    return inspect.iscoroutinefunction(func)
+
+---
+
+给 app/llm_client.py 增加异步方
+
+在 LLMClient 类里增加（不是替换）以下代码——你需要用 Edit 或者手动在类内添加 _async_client 属性和 async_chat 方法：
+
+    # ============ 异步相关（Day 4 新增） ============
+
+    # 异步客户端——注意：AsyncClient 必须在 async 上下文里使用
+    # 这里不在 __init__ 里创建，而是在 async_chat 里用 async with 临时创建
+    # 原因：AsyncClient 的生命周期应该和事件循环绑定，在 __init__（同步）里创建不可靠
+
+    async def async_chat(
+        self,
+        prompt: str,
+        *,
+            1. 用 httpx.AsyncClient 而不是 Client
+            2. 用 await client.post() 而不是 client.post()
+
+        其他逻辑（参数校验、错误处理、响应解析）完全复用。
+
+        Args:
+            prompt: 用户输入的问题或指令。
+            system: 可选的系统提示词。
+            temperature: 0-2，越低越确定。
+            max_tokens: 最大输出 token 数。
+
+        Returns:
+            模型回答的纯文本内
+    async def async_chat_with_history(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
+    ) -> str:
+        """异步版多轮对话——完整的 async 调用链路。
+
+        和同步版 chat_with_history() 的错误处理和响应解析逻辑完全一致，
+        只是把 HTTP 调用换成了异步方式。
+
+        为什么错误处理代码重复了而不是抽公共方法？
+        因为 try/except 捕获的是 httpx 的异常，同步和异步的异常类型是相同的，
+        理论上可以抽取。但为了让你 Day 4 清楚地看到同步/异步的完整对比，
+        这里故意保留完整代码——Day 6 重构时会抽公共方法。
+        """
+        self._validate_messages(messages)
+
+        url = f"{self._base_url}{self.CHAT_ENDPOINT}"
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self._model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+
+        # 关键：用 async with 管理 AsyncClient，连接在退出时自动关闭
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=10.0, read=90.0)
+            ) as async_client:
+                response = await async_client.post(url, headers=headers, json=payload)
+        except httpx.ConnectError as e:
+            raise NetworkError(
+                f"无法连接到 LLM API: {self._base_url}\n"
+                f"检查: 1) 网络 2) LLM_BASE_URL 3) 代理"
+            ) from e
+        except httpx.ReadTimeout as e:
+            raise TimeoutError(
+                f"LLM API 响应超时（90 秒）: {self._base_url}\n"
+                f"建议: 缩短 prompt 或换更快的模型"
+            ) from e
+        except httpx.RequestError as e:
+            raise NetworkError(f"LLM API 请求失败: {e}") from e
+
+---
+
+benchmark.py（并发性能对比脚本，放项目根目录）
+
+"""
+Day 4 性能对比基准测试：串行 vs 并发调用 LLM API。
+
+运行方式：
+    python benchmark.py
+
+这个脚本回答一个面试必问题："你做了异步优化，到底快了多少？"
+
+它用真实的 LLM API 调用做实验：
+import time
+
+from app.config import get_config, ConfigError
+from app.llm_client import LLMClient, LLMError
+from app.timer import timer
+
+# 3 个互不依赖的问题——这是并发的前提（如果 B 依赖 A 的结果，就不能并发）
+PROMPTS = [
+    "用一句话解释什么是 HTTP 状态码 200",
+    "用一句话解释什么是 JSON",
+    "用一句话解释什么是 Git",
+]
+
+
+@timer
+def run_serial(client: LLMClient) -> list[str]:
+    """串行调用——一个一个来，总耗时 = 所有耗时之和。
+
+    Args:
+        client: 同步 LLMClient。
+
+    Returns:
+        3 个回答组成的列表。
+    """
+    results: list[str] = []
+    for prompt in PROMPTS:
+        answer = client.chat(prompt)
+        results.append(answer)
+    return results
+
+async def run_concurrent(client: LLMClient) -> list[str]:
+    """并发调用——asyncio.gather 同时发 3 个请求，总耗时 ≈ 最慢的那个。
+
+    Args:
+        client: 异步 LLMClient（其实用的是同一个 client 的 async 方法）。
+
+    Returns:
+        3 个回答组成的列表（顺序和 PROMPTS 一致）。
+    """
+    # gather 接收多个协程，并发执行，返回结果列表
+    results = await asyncio.gather(
+        *[client.async_chat(prompt) for prompt in PROMPTS]
+    )
+    return results
+
+
+    print("  LLM API 并发性能对比：串行 vs 异步并发")
+    print("=" * 60)
+
+    # 加载配置
+    try:
+        cfg = get_config()
+    except ConfigError as e:
+        print(f"配置错误: {e}")
+        return
+
+    print(f"\n  模型: {cfg.model}")
+    print(f"  测试问题数: {len(PROMPTS)}")
+    print(f"  问题内容: {[p[:20] + '...' for p in PROMPTS]}")
+
+    with LLMClient(cfg) as client:
+        # ---- 串行测试 ----
+            return
+
+        # ---- 并发测试 ----
+        print("\n" + "─" * 60)
+        print("  ② 并发调用（asyncio.gather）")
+        print("─" * 60)
+        try:
+            concurrent_results = await run_concurrent(client)
+            print(f"  ✅ 并发完成，共 {len(concurrent_results)} 个回答")
+        except LLMError as e:
+            print(f"  ❌ 并发失败: {e}")
+            return
+
+    # ---- 验证结果一致性 ----
+    print("\n" + "─" * 60)
+    print("  结果校验（两种方式的回答应该内容相近）")
+    print("─" * 60)
+    for i, (s, c) in enumerate(zip(serial_results, concurrent_results)):
+        print(f"\n  Q{i + 1}: {PROMPTS[i][:30]}")
+        print(f"    串行回答: {s[:60]}...")
+        print(f"    并发回答: {c[:60]}...")
+
+    print("\n" + "=" * 60)
+    print("  💡 观察上面的 [计时] 输出：")
+    print("     串行 = 3 次耗时相加")
+    print("     并发 = 接近 1 次耗时（最慢的那个）")
+    print("     这就是异步在 IO 密集场景的价值")
+    print("=" * 60)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+---
+
+运行方式
+
+# 1. 确保在项目根目录，.env 已配置
+cd week1_llm_cli
+
+# 2. 激活虚拟环境
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bi
+============================================================
+  LLM API 并发性能对比：串行 vs 异步并发
+============================================================
+
+  模型: deepseek-chat
+  测试问题数: 3
+
+────────────────────────────────────────────────────────────
+  ① 串行调用（一个接一个）
+────────────────────────────────────────────────────────────
+[计时] run_serial 耗时 9.42 秒
+  ✅ 串行完成，共 3 个回答
+
+────────────────────────────────────────────────────────────
+  ② 并发调用（asyncio.gather）
+────────────────────────────────────────────────────────────
+[计时] run_concurrent 耗时 3.51 秒
+  ✅ 并发完成，共 3 个回答
+
+============================================================
+  💡 观察上面的 [计时] 输出：
+     串行 = 3 次耗时相加
+     并发 = 接近 1 次耗时（最慢的那个）
+============================================================
+
+---
+
+你需要观察什么
+ 个请求的耗时接近，加速比应该接近 3——因为 3 个等待完全重叠了。
+2. @timer 装饰器的输出：它打印了 run_serial 和 run_concurrent 两个函数名，说明装饰器对同步和异步函数都生效了。这就是 functools.wraps + iscoroutinefunction 判断的价值。
+3. 结果一致性：串行和并发的回答内容应该"意思相同但措辞不同"（因为 temperature 默认 0.7 有随机性）。如果完全一样反而奇怪。
+4. 为什么并发调用时 HTTP 连接没有冲突：每个 async_chat 都用了独立的 async with httpx.AsyncClient(...)，各自建立连接。Day 6 重构时会改成共享一个 AsyncClient 复用连接池，性能会更好。
+
+---
+
+可扩展任务
+
+
+---
+
+🎯 每日自我验收题
+
+第 1 题（概念解释）： "并发（concurrency）"和"并行（parallelism）"的区别是什么？为什么说 Python 的 asyncio 实现的是并发而非并行？LLM API 调用为什么特别适合用 asyncio 而不是多线程？关联双链：[[Python 异步编程]]、[[asyncio.gather 并发]]。
+
+---
+
+第 2 题（小实现 / 设计）： 写一个异步函数 fetch_all_with_timeout(prompts: list[str], timeout: float) -> list[str]，要求：
+
+- 用 asyncio.gather 并发调用多个 prompt
+- 用 asyncio.wait_for() 给整个并发任务加超时——超过 timeout 秒就取消并抛出超时异常
+- 超时时要能正确取消所有还在跑的协程（提示：用 gather 返回的 Task 对象，或研究 asyncio.wait）
+- 有完整 Type Hints、中文 docstring、异常处理
+
+---
+
+第 3 题（代码改错 / Bug 排查）： 下面这段代码在运行时不会报错，但存在严重的性能问题。找出问题并解释为什么：
+
+import asyncio
+import httpx
+
+async def fetch_url(client, url):
+    resp = await client.get(url)
+    return resp.text
+
+async def main():
+    urls = ["https://example.com"] * 5  # 同一个 URL 请求 5 次
+
+    # 错误示范：在循环里 await，实际还是串行
+    results = []
+    for url in urls:
+
+asyncio.run(main())
+
+提示：从"await 的位置""Client 的复用"两个角度排查。关联双链：[[httpx 异步请求]]、[[Python 异步编程]]。

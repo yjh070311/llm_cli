@@ -1,0 +1,20 @@
+ # 密钥文件——绝不能提交
+.env
+
+  # Python 虚拟环境
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# 用户数据——本地对话历史不提交
+data/
+
+  # IDE
+.vscode/
+.idea/
+
+  # 系统文件
+.DS_Store
+Thumbs.db

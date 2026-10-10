@@ -1,0 +1,633 @@
+📅 Week 1 / Day 6：代码重构与 Debug
+
+📌 今日核心死磕
+
+1. [[Python 项目分层]] — 从「能跑」到「能维护」的跃迁
+
+它是什么： 项目分层是把代码按职责拆到独立模块——config 管配置、client 管调用、history 管持久化、main 管编排。每层只做一件事，层与层之间通过明确的接口（函数签名、返回值类型）通信。
+
+它解决 Agent 工程里的什么痛点： Day 5 的 CLI 已经能跑，但 main.py 里混着命令处理、错误处理、消息构建、历史读写。等你 Week 7 做 AI-Interview（8 个模块），如果还是「一个文件全塞下」，改一个评分逻辑要翻 2000 行代码，改错一处全盘崩溃。分层让每个 bug 都可定位到具体文件。
+
+今天为什么必须学： 今天是 Week 1 的「工程化日」。你要把 Day 1-5 写的代码重新审视一遍，找出重复、混乱、职责不清的地方，重构干净。这是面试官最看重的能力之一——「你写的代码别人能接手吗」。
+
+新手最容易踩什么坑：
+- 为了分层而分层——把每个函数都拆成 5 个文件，反而更难读。分层标准是「职责单一」，不是「文件多」
+- 重构时不留测试/不留备份，改完一跑全崩，又回不去
+- 把「重构」理解成「重写」——重构是不改变外部行为的前提下优化内部结构，重写是推倒重来
+
+---
+
+2. [[自定义异常类]] + [[README 编写]] — 让错误可诊断、项目可交付
+
+它是什么： 自定义异常类（ConfigError、LLMError、NetworkError）把「哪里错了」表达得比裸 Exception 精确得多。README 是项目的「门面」——别人（面试官）第一眼看的文件，决定了他愿不愿意继续看代码。
+
+它解决 Agent 工程里的什么痛点： 裸 except Exception 会吞掉一切，出问题只能看到 Something went wrong。分类异常让你在 CLI 里能针对性地提示（认证失败就退出，网络超时就重试）。README 解决的是「项目完成了但没人能看懂、没人能运行」——没有 README 的项目在面试官眼里等于没做完。
+
+今天为什么必须学： 今天要产出 Week 1 的可交付项目：结构清晰、有 README、有 .env.example、有 .gitignore、别人 clone 下来按 README 能跑。这是「Demo」和「可投递项目」的分水岭。
+
+新手最容易踩什么坑：
+- README 只写「怎么运行」不写「架构设计」和「技术选型理由」——面试官想看的是后两者
+- .gitignore 里漏了 __pycache__/ 或 data/，仓库里堆满垃圾
+- 自定义异常定义了一堆但从不用，还是到处 except Exception
+
+---
+
+🎯 6 小时精细化路线
+
+上午 2 小时：审视代码 + 制定重构计划（09:00–11:00）
+
+┌──────┬────────────────────────────────────────────────────┬──────────────────┬──────────────────────────────────┐
+│ 时间 │                      具体任务                      │     预期产出     │            成功检查点            │
+├──────┼────────────────────────────────────────────────────┼──────────────────┼──────────────────────────────────┤
+│ 40   │ 通读 Day 1-5                                       │ 一份代码体检清单 │ 每个文件能说清「它负责什么」     │
+│ min  │ 写的全部代码，逐个文件写下「职责」和「问题」       │                  │                                  │
+├──────┼────────────────────────────────────────────────────┼──────────────────┼──────────────────────────────────┤
+│ 30   │ 找出重复代码（如 _validate_messages                │ 重复点清单       │ 标注每处重复出现的行数           │
+│ min  │ 在同步/异步里重复、错误处理重复）                  │                  │                                  │
+├──────┼────────────────────────────────────────────────────┼──────────────────┼──────────────────────────────────┤
+│ 30   │ 找出「职责不清」的地方（如 main.py                 │ 问题定位清单     │ 每个问题写明「应该搬到哪个模块」 │
+│ min  │ 里混了消息构建逻辑）                               │                  │                                  │
+├──────┼────────────────────────────────────────────────────┼──────────────────┼──────────────────────────────────┤
+│ 20   │ 制定重构顺序：先抽公共方法，再拆模块，最后写文档   │ 一份重构计划     │ 计划按「风险从低到高」排序       │
+│ min  │                                                    │                  │                                  │
+└──────┴────────────────────────────────────────────────────┴──────────────────┴──────────────────────────────────┘
+
+关联双链：[[Python 项目分层]]、[[自定义异常类]]
+
+---
+
+下午 3 小时：执行重构（13:00–16:00）
+
+┌─────┬────────────────────────────────────────────────────┬───────────────────┬─────────────────────────────────┐
+│ 时  │                      具体任务                      │     预期产出      │           成功检查点            │
+│ 间  │                                                    │                   │                                 │
+├─────┼────────────────────────────────────────────────────┼───────────────────┼─────────────────────────────────┤
+│ 50  │ 抽取 llm_client.py                                 │ 同步/异步共用一套 │ 同步和异步方法都变短，公共逻辑  │
+│ min │ 里的公共方法：错误处理、响应解析、请求构建         │ 逻辑              │ 只有一份                        │
+├─────┼────────────────────────────────────────────────────┼───────────────────┼─────────────────────────────────┤
+│ 50  │ 建立                                               │ 异常体系统一      │ 所有 raise 都引用 exceptions.py │
+│ min │ app/exceptions.py，把所有自定义异常集中到一个文件  │                   │  里的类                         │
+├─────┼────────────────────────────────────────────────────┼───────────────────┼─────────────────────────────────┤
+│ 40  │ 完善 .gitignore 和                                 │ 仓库干净          │ git status 看不到               │
+│ min │ .env.example，确认敏感信息不会提交                 │                   │ .env、__pycache__、.venv        │
+├─────┼────────────────────────────────────────────────────┼───────────────────┼─────────────────────────────────┤
+│ 40  │ 写 README.md：项目简介、功能、技术栈、架构图、快速 │ 一份可交付的      │ 别人按 README 能 5 分钟内跑起来 │
+│ min │ 启动、目录结构                                     │ README            │                                 │
+└─────┴────────────────────────────────────────────────────┴───────────────────┴─────────────────────────────────┘
+
+关联双链：[[.env.example 配置]]、[[.gitignore 配置]]、[[README 编写]]
+
+---
+
+晚上 1 小时：回归测试 + 笔记 + 自测（19:00–20:00）
+
+┌──────┬───────────────────────────────────────────────────────────┬────────────────────────┬────────────────────┐
+│ 时间 │                         具体任务                          │        预期产出        │     成功检查点     │
+├──────┼───────────────────────────────────────────────────────────┼────────────────────────┼────────────────────┤
+│ 20   │ 重构后回归测试：跑一遍 Day 5 的                           │ 重构没破坏功能         │ 每个命令都测一遍   │
+│ min  │ CLI，所有功能（对话/history/clear/exit）正常              │                        │                    │
+├──────┼───────────────────────────────────────────────────────────┼────────────────────────┼────────────────────┤
+│ 15   │ 整理「重构                                                │ 一份重构记录           │ 记录可复现         │
+│ min  │ checklist」笔记：改了什么、为什么、怎么验证没改坏         │                        │                    │
+├──────┼───────────────────────────────────────────────────────────┼────────────────────────┼────────────────────┤
+│ 10   │ 自测 3 道题                                               │ 每题有答案草稿         │ 不确定的用 ? 标记  │
+│ min  │                                                           │                        │                    │
+├──────┼───────────────────────────────────────────────────────────┼────────────────────────┼────────────────────┤
+│ 5    │ git add . + git commit -m "refactor: extract common logic │ 一次干净               │ git log 显示 6 条  │
+│ min  │  and add README"                                          │ commit（注意是         │ commit             │
+│      │                                                           │ refactor 前缀）        │                    │
+└──────┴───────────────────────────────────────────────────────────┴────────────────────────┴────────────────────┘
+
+关联双链：[[Git 提交规范]]、[[README 编写]]
+
+---
+
+💻 今日代码实战
+
+关联知识：[[Python 项目分层]]、[[自定义异常类]]、[[README 编写]]、[[.gitignore 配置]]、[[.env.example 配置]]
+
+app/exceptions.py（新建——统一异常体系）
+
+把散落在 config.py、api_client.py、llm_client.py、history.py 里的异常类集中管理：
+
+"""
+统一异常体系 — 项目内所有自定义异常的集中定义。
+
+为什么单独一个文件：
+    Day 1-5 的异常类散落在各模块里，import 关系混乱（llm_client 要
+    从 api_client 里 import NetworkError，形成模块间不必要的耦合）。
+
+    集中到一个文件后：
+        1. 所有模块只需 from app.exceptions import .
+        3. 新增异常类型只需改这一个文件
+
+异常继承树：
+    AppError（项目根异常）
+    ├── ConfigError（配置错误）
+    ├── HistoryError（历史持久化错误）
+    └── APIError（API 调用错误）
+        ├── NetworkError（网络不通）
+        ├── TimeoutError（超时）
+        ├── HTTPStatusError（状态码错误）
+        └── LLMError（LLM 特有错误）
+            ├── AuthenticationError（认证失败）
+            ├── RateLimitError（速率限制）
+            ├── ModelError（模型错误）
+            └── ContentFilterError（内容拦截）
+"""
+    """
+    pass
+
+
+# ============================================================
+# 配置与持久化
+# ============================================================
+
+class ConfigError(AppError):
+    """配置错误：缺少 .env 文件或必要配置项。"""
+    pass
+
+
+class HistoryError(AppError):
+    """历史记录操作失败：文件权限、JSON 格式损坏等。"""
+    pass
+
+
+# ============================================================
+# API 调用层
+# ============================================================
+
+class APIError(AppError):
+    """API 调用错误的基类。"""
+    pass
+
+
+class NetworkError(APIError):
+    """网络层错误：DNS 失败、连接拒绝、请求中断。
+
+    这类错误通常可以重试——服务端可能根本没收到请求。
+    """
+    pass
+
+
+class TimeoutError(APIError):
+    """请求超时：connect 超时或 read 超时。"""
+    pass
+
+
+class HTTPStatusError(APIError):
+    """HTTP 状态码错误：服务端返回了非 2xx。
+
+    Attributes:
+        status_code: 状态码（401、429、500 等）
+        response_body: 服务端错误详情文本
+    """
+
+    def __init__(self, message: str, status_code: int, response_body: str = ""):
+        super().__init__(message)
+
+    def __str__(self) -> str:
+        parts = [f"HTTP {self.status_code}: {super().__str__()}"]
+        if self.response_body:
+            parts.append(f"响应内容: {self.response_body[:200]}")
+        return "\n".join(parts)
+
+
+# ============================================================
+# LLM 层
+# ============================================================
+
+class LLMError(APIError):
+    """LLM API 特有的错误基类。"""
+    pass
+
+
+class AuthenticationError(LLMError):
+    """认证失败（401/403）：API Key 错误、过期或无权限。
+
+    不要重试——Key 错了重试多少次都是错。
+    """
+    pass
+
+
+class RateLimitError(LLMError):
+    """速率限制（429）：请求太频繁或额度用完。
+
+    应该等待后重试，不要立即重试。
+    """
+    pass
+
+
+class ModelError(LLMError):
+    """模型相关错误（404 等）：模型不存在或端点不对。"""
+    pass
+
+
+class ContentFilterError(LLMError):
+    """输出被内容安全策略拦截。"""
+    pass
+
+---
+
+重构 app/llm_client.py（抽取公共方法）
+
+
+"""
+LLM 客户端模块（Day 6 重构版）——抽取同步/异步公共逻辑。
+
+Day 6 重构点：
+    1. 所有异常从 app.exceptions 统一 import
+    2. _build_request() 抽取请求构建逻辑（同步/异步共用）
+    3. _handle_error_status() 和 _parse_response() 保持单一职责
+    4. 同步/异步方法变薄，只负责"发请求"这一个动作
+"""
+
+from typing import Any
+
+import httpx
+
+from app.config import AppConfig
+from app.exceptions import (
+    NetworkError,
+    TimeoutError,
+    AuthenticationError,
+    RateLimitError,
+    ModelError,
+    ContentFilterError,
+    LLMError,
+)
+
+VALID_ROLES = {"system", "user", "assistant"}
+
+FINISH_REASON_MEANING = {
+    "stop": "正常完成",
+    "length": "达到 max_tokens 限制，输出被截断",
+    "content_filter": "输出被安全策略拦截",
+    "tool_calls": "模型决定调用工具",
+}
+
+
+class LLMClient:
+    """OpenAI-compatible LLM API 客户端（同步 + 异步双模）。"""
+
+    CHAT_ENDPOINT = "/v1/chat/completions"
+
+    def __init__(self, config: AppConfig):
+        self._base_url = config.base_url.rstrip("/")
+        self._api_key = config.api_key
+        self._model = config.model
+        self._timeout = httpx.Timeout(connect=10.0, read=90.0)
+
+        self._client = httpx.Client(timeout=self._timeout)
+
+    # ----------------------------------------------------------
+    # 生命周期
+    # ----------------------------------------------------------
+
+    def close(self) -> None:
+        self._client.close()
+
+    def __enter__(self) -> "LLMClient":
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        self.close()
+
+    # ----------------------------------------------------------
+    # 同步接口
+    # ----------------------------------------------------------
+
+    def chat(self, prompt: str, *, system: str | None = None, **kwargs: Any) -> str:
+        """单轮对话（同步）。"""
+        messages: list[dict[str, str]] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        return self.chat_with_history(messages, **kwargs)
+
+    def chat_with_history(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
+        """多轮对话（同步）。
+
+        重构后这个方法变薄了：只负责发请求 + 委托错误处理和解析。
+        """
+        self._validate_messages(messages)
+        request = self._build_request(messages, kwargs)
+
+        try:
+            response = self._client.post(request["url"], headers=request["headers"], json=request["payload"])
+        except httpx.ConnectError as e:
+            raise NetworkError(f"无法连接到 LLM API: {self._base_url}") from e
+        except httpx.ReadTimeout as e:
+            raise TimeoutError(f"LLM API 响应超时（90 秒）") from e
+        except httpx.RequestError as e:
+            raise NetworkError(f"LLM API 请求失败: {e}") from e
+
+        self._handle_error_status(response)
+        return self._parse_response(response)
+
+    # ----------------------------------------------------------
+    # 异步接口
+    # ----------------------------------------------------------
+
+    async def async_chat(self, prompt: str, *, system: str | None = None, **kwargs: Any) -> str:
+        """单轮对话（异步）。"""
+        messages: list[dict[str, str]] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        return await self.async_chat_with_history(messages, **kwargs)
+
+    async def async_chat_with_history(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
+        """多轮对话（异步）。
+
+        注意：现在和同步版共用 _build_request / _handle_error_status /
+        _parse_response 三个方法，重复代码已消除。
+        """
+        self._validate_messages(messages)
+        request = self._build_request(messages, kwargs)
+
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as async_client:
+                response = await async_client.post(
+                    request["url"], headers=request["headers"], json=request["payload"]
+                )
+        except httpx.ConnectError as e:
+            raise NetworkError(f"无法连接到 LLM API: {self._base_url}") from e
+        except httpx.ReadTimeout as e:
+            raise TimeoutError(f"LLM API 响应超时（90 秒）") from e
+        except httpx.RequestError as e:
+            raise NetworkError(f"LLM API 请求失败: {e}") from e
+
+        self._handle_error_status(response)
+        return self._parse_response(response)
+
+    # ----------------------------------------------------------
+    # 公共逻辑（Day 6 抽取——同步/异步共用）
+    # ----------------------------------------------------------
+
+    def _build_request(self, messages: list[dict[str, str]], kwargs: dict[str, Any]) -> dict[str, Any]:
+        """构建 HTTP 请求所需的 url、headers、payload（同步/异步共用）。
+
+        Args:
+            kwargs: 调用方传入的可选参数（temperature、max_tokens 等）。
+
+        Returns:
+            {"url": ..., "headers": ..., "payload": ...} 字典。
+        """
+        url = f"{self._base_url}{self.CHAT_ENDPOINT}"
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": messages,
+            "temperature": kwargs.get("temperature", 0.7),
+            "max_tokens": kwargs.get("max_tokens", 2048),
+        }
+        return {"url": url, "headers": headers, "payload": payload}
+
+    def _validate_messages(self, messages: list[dict[str, str]]) -> None:
+        """校验 messages 格式（Day 3 的代码，逻辑不变）。"""
+        if not isinstance(messages, list):
+            raise ValueError(f"messages 必须是 list")
+        if len(messages) == 0:
+            raise ValueError("messages 不能为空")
+        for i, msg in enumerate(messages):
+            if not isinstance(msg, dict) or "role" not in msg or "content" not in msg:
+                raise ValueError(f"messages[{i}] 格式错误，需要 role 和 content")
+            if msg["role"] not in VALID_ROLES:
+                raise ValueError(f"messages[{i}] role 不合法: {msg['role']}")
+
+    def _handle_error_status(self, response: httpx.Response) -> None:
+        """根据状态码分类抛异常（Day 3 的代码，只改 import 来源）。"""
+        if response.is_success:
+            return
+
+        status = response.status_code
+        error_detail = self._extract_error_detail(response)
+
+        if status == 401:
+            raise AuthenticationError(f"认证失败，请检查 LLM_API_KEY。服务端: {error_detail}")
+        elif status == 403:
+            raise AuthenticationError(f"访问被拒绝，可能账户未激活或区域限制。服务端: {error_detail}")
+        elif status == 429:
+            raise LLMError(f"请求参数错误（{status}）: {error_detail}")
+        elif status >= 500:
+            raise LLMError(f"LLM 服务端错误（{status}），请稍后重试")
+        else:
+            raise LLMError(f"未知错误（{status}）: {error_detail}")
+
+    def _extract_error_detail(self, response: httpx.Response) -> str:
+        """提取服务端错误详情（Day 3 的代码，逻辑不变）。"""
+        try:
+            body = response.json()
+            if isinstance(body, dict) and "error" in body:
+                error = body["error"]
+                if isinstance(error, dict):
+                    msg = error.get("message", "")
+                    t = error.get("type", "")
+                    return f"{t}: {msg}" if t else msg
+                return str(error)
+            return response.text[:300]
+        except Exception:
+            return response.text[:300]
+
+        except Exception as e:
+            raise LLMError(f"响应不是有效 JSON: {response.text[:200]}") from e
+
+        choices = body.get("choices")
+        if not choices or not isinstance(choices, list):
+            raise LLMError(f"响应缺少 choices 字段: {body}")
+
+        first = choices[0]
+        message = first.get("message")
+        if not message or not isinstance(message, dict):
+            raise LLMError(f"响应缺少 choices[0].message: {body}")
+
+        content: str = message.get("content", "")
+        finish_reason: str = first.get("finish_reason", "unknown")
+
+        if finish_reason == "length":
+            content += "\n\n⚠️ [警告] 输出被截断（finish_reason=length），请增大 max_tokens"
+        elif finish_reason == "content_filter":
+            raise ContentFilterError("输出被内容安全策略拦截")
+
+        return content
+
+---
+
+gitignore
+# ===== 密钥文件（绝对不能提交）=====
+.env
+*.env
+!.env.example
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== 虚拟环境 =====
+env/
+
+# ===== 用户数据 =====
+data/
+*.log
+
+# ===== IDE =====
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ===== 系统 =====
+.DS_Store
+
+一个基于 Python 异步 HTTP 客户端的 OpenAI-compatible 大模型命令行调用工具。
+
+## 功能特性
+
+- ✅ 支持任意 OpenAI-compatible API（DeepSeek / OpenAI / Qwen / GLM / Moonshot 等）
+- ✅ 交互式命令行对话，Rich 美化输出（Markdown 渲染、彩色面板）
+- ✅ 多轮对话上下文保持，历史持久化到 JSON
+- ✅ 同步 / 异步双模调用，支持 `asyncio.gather` 并发
+- ✅ 分层异常处理：认证失败 / 速率限制 / 网络超时 / 模型错误分别提示
+- ✅ 并发性能对比基准测试（`benchmark.py`）
+
+## 技术栈
+
+| 组件 | 用途 |
+|------|------|
+| Python 3.11+ | 运行环境 |
+| httpx | 同步/异步 HTTP 客户端 |
+| python-dotenv | 环境变量管理 |
+| rich | 终端美化输出 |
+
+## 快速启动
+
+```bash
+# 1. 克隆（或进入）项目
+cd week1_llm_cli
+
+# 2. 创建虚拟环境
+# 3. 安装依赖
+pip install -r requirements.txt
+
+# 4. 配置环境变量
+cp .env.example .env
+# 编辑 .env，填入你的 API Key
+
+# 5. 运行
+python main.py
+
+目录结构
+
+week1_llm_cli/
+├── app/
+│   ├── __init__.py
+│   ├── config.py          # .env 配置读取
+│   ├── api_client.py      # HTTP 客户端封装
+│   ├── llm_client.py      # LLM API 客户端（同步+异步）
+│   ├── history.py         # 对话历史持久化
+├── tests/
+├── data/                  # 对话历史（gitignored）
+├── .env.example
+├── .gitignore
+├── README.md
+├── requirements.txt
+├── main.py                # CLI 入口
+└── benchmark.py           # 并发性能基准
+
+架构设计
+
+main.py（编排层）
+   │
+   ├── config.py（配置层）→ 读取 .env
+   ├── llm_client.py（调用层）→ 封装 APIprompt，总耗时接近最慢的那个请求，而非三个请求之和。
+
+---
+
+### 运行方式（重构后回归测试）
+
+```bash
+# 1. 确认重构没改坏——重新跑一遍 CLI
+python main.py
+
+# 2. 逐个测试命令
+#    /help    → 显示帮助表格
+#    /history → 显示历史
+#    /clear   → 清空历史
+#    /exit    → 退出
+#    正常对话  → 调 LLM 并 Markdown 渲染
+
+# 3. 确认导入来源正确
+python -c "from app.exceptions import ConfigError, LLMError, NetworkError; print('异常体系 OK')"
+
+# 4. 确认敏感信息没被跟踪
+git status
+# 应该看不到 .env、.venv/、__pycache__/、data/
+
+---只有一份，同步/异步方法各自只剩「发请求」几行。这就是「抽取公共方法」的直接收益。
+2. from app.exceptions import ... 的清爽感：Day 3 时 llm_client.py 要从 api_client.py 里 import 异常，模块间形成耦合。现在所有异常一个来源，import 关系变成单向的。
+3. .gitignore 里 !.env.example 的作用：git status 应该能看到 .env.example（被 ! 规则豁免），但看不到 .env。如果这行漏了，.env.example 会一起被忽略。
+4. README 的「可运行性」：找个空目录，按 README 的「快速启动」步骤从头走一遍（clone → venv → install → 配置 → run），看能不能 5 分钟内跑起来。这是验证 README 质量的最好方法。
+
+---
+
+可扩展任务
+
+1. 写单元测试：给 _validate_messages 写 pytest 测试——合法 messages 通过、空列表报错、缺 role 报错、role 非法报错。这是 Day 7 的预告，今天可以先起个头。
+2. 加 .pre-commit 钩子：配置一个 git 钩子，每次 commit 前自动检查 .env 是否被误加（如果 .env 在暂存区就拒绝提交）。这是防止密钥泄露的工程防线。
+3. 给异常加更多上下文：给 LLMError 增加 request_id 字段（很多 API 的响应头里有 x-request-id），出问题可以拿这个 ID 找服务商排查。
+
+---
+
+🎯 每日自我验收题
+
+第 1 题（概念解释）： 重构（refactor）和重写（rewrite）的本质区别是什么？为什么说「重构不改变外部行为」是重构的定义性特征？你今天的重构哪些地方满足这个标准，哪些地方其实更接近重写？关联双链：[[Python 项目分层]]。
+
+---
+
+第 2 题（小实现 / 设计）： 现在 LLMClient 的 _handle_error_status 里，401 和 403 都抛 AuthenticationError，429 抛 RateLimitError。请设计并实现一个 should_retry(exception) -> bool 函数：
+
+- NetworkError → 返回 True（网络抖动可重试）
+- RateLimitError → 返回 True（限流可等待重试）
+- 5xx 服务端错误 → 返回 True
+- AuthenticationError → 返回 False（Key 错重试没用）
+- ModelError → 返回 False（模型不存在重试没用）
+- 未知异常 → 返回 False（保守起见不重试）
+
+要求用 isinstance 判断，注释说明每个分支为什么这么决策。
+
+---
+
+第 3 题（代码改错 / Bug 排查）： 下面的 .gitignore 有一个隐蔽的 bug，导致 .env.example 无法被 git 跟踪。找出来并修复：
+
+
+# Python
+__pycache__/
+.venv/
+
+提示：仔细理解 .gitignore 里 * 通配符的匹配规则，以及「后写的规则覆盖先写的规则」这一条。关联双链：[[.gitignore 配置]]、[[.env.example 配置]]。
+
+---
+
+📥 明日同步接口
+
+请你明天把下面这段填好发给我：
+
+【Day 6 学习反馈】
+1. 今天实际学习时长：
+2. 完成了哪些代码/文件：
+3. 哪个概念最清楚了：
+4. 哪个概念还没懂：
+5. 卡住的 Bug / 报错全文：
+6. 自我验收题完成情况：
+7. 明天希望：正常推进 / 放慢复习 / 加难扩展

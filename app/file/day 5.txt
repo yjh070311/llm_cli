@@ -1,0 +1,591 @@
+📅 Week 1 / Day 5：LLM CLI 工具搭建
+
+📌 今日核心死磕
+
+1. [[命令行交互]] — 把散装代码拼成一个真正的产品
+
+它是什么： 命令行交互是「程序启动 → 等待用户输入 → 处理 → 输出 → 回到等待」的循环。今天要把 Day 1-4 写的 config.py、history.py、api_client.py、llm_client.py、timer.py 串成一条完整链路，让用户能在一个终端里连续和 LLM 对话。
+
+它解决 Agent 工程里的什么痛点： 你之前写的都是「函数 + 脚本」，每次要改 prompt 都得改代码重新运行。真正的 CLI 工具让用户在运行时动态输入，这是「库」和「产品」的分界线。面试官问你「项目能不能跑起来给人用」，一个可交互的 CLI 比一个 python test.py 脚本有说服力得多。
+
+今天为什么必须学： 本周核心产出物是 LLM CLI 调用工具。今天之前的所有代码都是零件，今天要完成组装。做完今天，你就有第一个可以演示、可以截图、可以写进 README 的项目。
+
+新手最容易踩什么坑：
+- 交互循环里没处理 KeyboardInterrupt（Ctrl+C），用户一按 Ctrl+C 程序就崩一堆红字
+- 把业务逻辑全塞进 main.py 一个文件——今天必须坚持「main 只做编排，具体逻辑在各自模块里」
+- 用户输入空字符串也发给 LLM，浪费一次调用还报错
+
+---
+
+2. [[Rich 终端输出]] + [[对话历史持久化]] — 让工具好用、可回溯
+
+它是什么： rich 库在终端里渲染彩色文字、面板（Panel）、Markdown 格式、进度条。对话历史持久化是把每一轮对话存到 data/history.json，重启程序后还能读到之前的上下文。
+
+它解决 Agent 工程里的什么痛点： LLM 的回答经常是 Markdown 格式（标题、代码块、列表），直接 print 出来是一堆 # 和 ``` 符号，根本没法读。Rich 的 Markdown 渲染把 LLM 输出变成终端里可读的排版。历史持久化让多轮对话跨进程存活——这是 Agent「记忆」的最简实现。
+
+今天为什么必须学： 今天要把 Day 3 的多轮对话和 Day 1 的历史持久化打通：用户说一句 → 存历史 → 带历史调 LLM → 存回答 → Rich 美化输出。这一条链路就是 Week 6-7 Agent 记忆机制的雏形。
+
+新手最容易踩什么坑：
+- 历史无限累加，第 20 轮后 messages 越来越长、token 越来越贵、模型开始"忘"早期内容
+- 只存了 user 消息没存 assistant 消息，导致下一轮 LLM 不知道"我上一句说了什么"
+
+---
+
+🎯 6 小时精细化路线
+
+上午 2 小时：看文档 + 最小验证（09:00–11:00）
+
+┌──────┬───────────────────────────────────────────┬─────────────────────────────────┬───────────────────────────┐
+│ 时间 │                 具体任务                  │            预期产出             │        成功检查点         │
+├──────┼───────────────────────────────────────────┼─────────────────────────────────┼───────────────────────────┤
+│ 40   │ 读 Rich 官方文档的                        │ 理解                            │ 写出 10 行用 Rich 渲染    │
+│ min  │ Console、Panel、Markdown 三个章节         │ console.print、Panel、Markdown  │ Markdown 的 demo          │
+│      │                                           │ 的用法                          │                           │
+├──────┼───────────────────────────────────────────┼─────────────────────────────────┼───────────────────────────┤
+│ 30   │ 读 Python input() 的文档，关注            │ 理解交互循环的边界处理          │ 写出一个带 /exit          │
+│ min  │ EOFError（Ctrl+D）和空输入的边界情况      │                                 │ 和空输入判断的循环骨架    │
+├──────┼───────────────────────────────────────────┼─────────────────────────────────┼───────────────────────────┤
+│ 30   │ 研究 Rich 的                              │                                 │ 写出彩色输入提示的 5      │
+│ min  │ console.input()（带颜色的输入提示）和     │ 理解如何给输入提示加颜色        │ 行代码                    │
+│      │ Text 样式                                 │                                 │                           │
+├──────┼───────────────────────────────────────────┼─────────────────────────────────┼───────────────────────────┤
+│ 20   │ 画一张 CLI 的流程图：启动 → 打印欢迎 →    │ 一张完整流程图                  │ 每个箭头标了函数调用关系  │
+│ min  │ 循环{输入→校验→调LLM→存历史→输出} → 退出  │                                 │                           │
+└──────┴───────────────────────────────────────────┴─────────────────────────────────┴───────────────────────────┘
+
+关联双链：[[命令行交互]]、[[Rich 终端输出]]、[[对话历史持久化]]、[[LLM CLI 项目总览]]
+
+---
+
+下午 3 小时：手写核心代码（13:00–16:00）
+
+┌──────┬───────────────────────────────────┬────────────────────────┬──────────────────────────────────────────────┐
+│ 时间 │             具体任务              │        预期产出        │                  成功检查点                  │
+├──────┼───────────────────────────────────┼────────────────────────┼──────────────────────────────────────────────┤
+│ 40   │ 完善 app/history.py：增加         │ 历史记录可清空、可限制 │ clear_history() 清空文件，max_entries=100    │
+│ min  │ clear_history() 和最大条数限制    │                        │ 时旧消息自动删                               │
+├──────┼───────────────────────────────────┼────────────────────────┼──────────────────────────────────────────────┤
+│ 50   │ 完善 main.py                      │                        │                                              │
+│ min  │ 交互循环：/exit、/history、/clear │ 完整的交互式 CLI       │ 三个命令分别测试通过                         │
+│      │  三个命令                         │                        │                                              │
+├──────┼───────────────────────────────────┼────────────────────────┼──────────────────────────────────────────────┤
+│ 50   │ 接入 Rich：欢迎面板、Markdown     │ 输出可读性大幅提升     │ 一段带代码块的 LLM 回答能正确渲染            │
+│ min  │ 渲染回答、彩色错误提示            │                        │                                              │
+├──────┼───────────────────────────────────┼────────────────────────┼──────────────────────────────────────────────┤
+│ 40   │ 打通历史链路：每轮对话存历史 +    │ 多轮对话跨进程保持     │ 退出程序重开，输入"接着刚才的话题"模型能接上 │
+│ min  │ 带历史调 LLM                      │                        │                                              │
+└──────┴───────────────────────────────────┴────────────────────────┴──────────────────────────────────────────────┘
+
+关联双链：[[对话历史持久化]]、[[LLMClient 封装]]、[[Rich 终端输出]]
+
+---
+
+晚上 1 小时：重构 + 笔记 + 自测（19:00–20:00）
+
+┌──────┬────────────────────────────────────────────────────────┬──────────────────┬─────────────────────────────┐
+│ 时间 │                        具体任务                        │     预期产出     │         成功检查点          │
+├──────┼────────────────────────────────────────────────────────┼──────────────────┼─────────────────────────────┤
+│ 15   │ 检查 main.py                                           │ 分层清晰         │ 能说出每个模块的单一职责    │
+│ min  │ 是否「只做编排」——业务逻辑是否都留在模块里             │                  │                             │
+├──────┼────────────────────────────────────────────────────────┼──────────────────┼─────────────────────────────┤
+│ 15   │ 整理「CLI 项目分层」笔记                               │ 一个知识点笔记   │ 画出 main → client → config │
+│ min  │                                                        │                  │  的调用链                   │
+├──────┼────────────────────────────────────────────────────────┼──────────────────┼─────────────────────────────┤
+│ 15   │ 用 Rich 的 console.export_text() 或截图工具，截一张    │ 一张可放进       │ 截图能看清彩色输出和        │
+│ min  │ CLI 运行效果图                                         │ README 的截图    │ Markdown 渲染               │
+├──────┼────────────────────────────────────────────────────────┼──────────────────┼─────────────────────────────┤
+│ 10   │ 自测 3 道题                                            │ 每题有答案草稿   │ 不确定的用 ? 标记           │
+│ min  │                                                        │                  │                             │
+├──────┼────────────────────────────────────────────────────────┼──────────────────┼─────────────────────────────┤
+│ 5    │ git add . + git commit -m "feat: build interactive CLI │ 一次干净 commit  │ git log 显示 5 条 commit    │
+│ min  │  with rich output and history"                         │                  │                             │
+└──────┴────────────────────────────────────────────────────────┴──────────────────┴─────────────────────────────┘
+
+关联双链：[[Python 项目分层]]、[[Git 提交规范]]、[[README 编写]]
+
+---
+
+💻 今日代码实战
+
+关联知识：[[命令行交互]]、[[Rich 终端输出]]、[[对话历史持久化]]、[[LLMClient 封装]]、[[Python 项目分层]]
+
+完善 app/history.py（增加两个方法）
+
+在 Day 1 的 history.py 基础上新增以下方法（用 Edit 或手动添加）：
+
+def clear_history(filepath: Path) -> None:
+    """清空对话历史文件。
+
+    把文件内容重置为空数组 []。这样下一轮对话就是全新的开始。
+
+    Args:
+        filepath: 历史文件路径。
+    """
+    _ensure_data_dir(filepath)
+    filepath.write_text("[]", encoding="utf-8")
+
+
+def save_message_with_limit(
+    filepath: Path,
+    role: str,
+    content: str,
+    max_entries: int = 100,
+) -> None:
+    """保存消息，并限制历史条数（防止 JSON 文件无限膨胀）。
+
+    Args:
+        filepath: 历史文件路径。
+        role: 消息角色。
+        content: 消息内容。
+        max_entries: 最多保留的消息条数。超出后删除最旧的。
+
+    为什么需要这个限制：
+        messages 会随对话轮数线性增长。第 50 轮时可能有 100 条消息，
+        每次调用 LLM 都要把 100 条消息全部发过去——token 消耗暴涨、
+        响应变慢、模型开始遗忘早期上下文。限制条数是成本控制的第一步。
+    """
+    messages = load_messages(filepath)  # 复用已有逻辑，读取现有历史
+    messages.append(_build_message(role, content))
+
+    # 超出限制时，只保留最新的 max_entries 条
+    if len(messages) > max_entries:
+        messages = messages[-max_entries:]
+
+    _ensure_data_dir(filepath)
+    filepath.write_text(
+        json.dumps(messages, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+---
+
+重写 main.py（Day 5 完整版本）
+
+这是今天的核心交付物——完整的交互式 CLI：
+
+"""
+week1_llm_cli 程序入口 — Day 5 完整版：交互式 LLM 命令行工具。
+
+进化记录：
+    Day 1: 配置读取 + 历史验证
+    Day 2: HTTP API Client
+    Day 3: LLM Client 接入
+    Day 4: 异步并发 + 计时
+    Day 5: 完整交互式 CLI（本文件）
+
+支持的命令：
+    /exit    退出程序
+    /history 查看最近对话历史
+    /clear   清空对话历史
+    /help    显示帮助
+
+架构原则：
+    main.py 只做「编排」——组织输入输出流程，
+    具体的配置读取、LLM 调用、历史持久化都在各自模块里。
+"""
+
+import sys
+from pathlib import Path
+
+# 确保任意目录执行都能找到 app 包
+PROJECT_ROOT = Path(__file__).resolve().parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from rich.console import Console
+from rich.panel import Panel
+from rich.markdown import Markdown
+from rich.table import Table
+from rich.text import Text
+
+from app.config import get_config, ConfigError, AppConfig
+from app.llm_client import (
+    LLMClient,
+    AuthenticationError,
+    RateLimitError,
+    ModelError,
+    LLMError,
+)
+from app.api_client import NetworkError, TimeoutError
+from app.history import (
+    save_message_with_limit,
+    load_messages,
+    clear_history,
+    HistoryError,
+)
+
+# 创建全局 Console——所有输出都走这个实例，保证样式一致
+console = Console()
+
+HISTORY_FILE = PROJECT_ROOT / "data" / "history.json"
+
+# system prompt：定义 AI 的行为
+SYSTEM_PROMPT = (
+    "你是一个专业的 AI 助手，用中文回答。"
+    "回答使用 Markdown 格式：重要结论加粗，代码用代码块，分点用列表。"
+    "如果用户的问题涉及代码，给出可运行的示例。"
+)
+
+# 历史最大条数——防止 messages 无限膨胀
+MAX_HISTORY_ENTRIES = 100
+
+
+# ============================================================
+# 命令处理
+# ============================================================
+
+def handle_command(command: str, cfg: AppConfig, client: LLMClient) -> bool:
+    """处理以 / 开头的内置命令。
+
+    Args:
+        command: 用户输入的原始命令（已去掉首尾空格）。
+        cfg: 配置对象。
+        client: LLM 客户端。
+
+    Returns:
+        True 表示应该继续循环，False 表示应该退出程序。
+    """
+    cmd = command.lower().strip()
+
+    if cmd in ("/exit", "/quit", "/q"):
+        console.print("\n[bold yellow]👋 再见！[/bold yellow]\n")
+        return False
+
+    if cmd in ("/help", "/?"):
+        show_help()
+        return True
+
+    if cmd in ("/history", "/h"):
+        show_history()
+        return True
+
+    if cmd in ("/clear", "/c"):
+        clear_chat()
+        return True
+
+    # 未知命令
+    console.print(f"[red]未知命令: {command}[/red]")
+    console.print("[dim]输入 /help 查看可用命令[/dim]")
+    return True
+
+
+def show_help() -> None:
+    """显示帮助信息。"""
+    help_table = Table(title="可用命令", show_header=True, header_style="bold cyan")
+    help_table.add_column("命令", style="cyan")
+    help_table.add_column("说明", style="white")
+    help_table.add_row("/exit", "退出程序")
+    help_table.add_row("/history", "查看最近对话历史")
+    help_table.add_row("/clear", "清空对话历史")
+    help_table.add_row("/help", "显示本帮助")
+    console.print(help_table)
+
+
+def show_history() -> None:
+    """显示最近 10 条对话历史。"""
+    try:
+        messages = load_messages(HISTORY_FILE)
+    except HistoryError as e:
+        console.print(f"[red]读取历史失败: {e}[/red]")
+        return
+
+    if not messages:
+        console.print("[dim]暂无对话历史[/dim]")
+        return
+
+    # 只显示最近 10 条
+    recent = messages[-10:]
+    console.print("\n[bold]📜 最近对话（共 {} 条）:[/bold]".format(len(messages)))
+    for msg in recent:
+        role = msg.get("role", "?")
+        content = msg.get("content", "")
+        # 只显示前 80 个字符，避免刷屏
+        preview = content[:80] + ("..." if len(content) > 80 else "")
+
+        if role == "user":
+            console.print(f"  [cyan]👤 你:[/cyan] {preview}")
+        elif role == "assistant":
+            console.print(f"  [green]🤖 AI:[/green] {preview}")
+        else:
+            console.print(f"  [dim]{role}: {preview}[/dim]")
+    console.print()
+
+
+def clear_chat() -> None:
+    """清空对话历史。"""
+    try:
+        clear_history(HISTORY_FILE)
+        console.print("[bold green]✅ 对话历史已清空[/bold green]\n")
+    except HistoryError as e:
+        console.print(f"[red]清空失败: {e}[/red]")
+
+
+# ============================================================
+# 主流程
+# ============================================================
+
+def print_welcome(cfg: AppConfig) -> None:
+    """打印欢迎面板——展示当前配置和可用命令。"""
+    welcome_text = Text()
+    welcome_text.append("🤖 LLM CLI 调用工具\n", style="bold white")
+    welcome_text.append(f"  模型: {cfg.model}\n", style="cyan")
+    welcome_text.append(f"  API: {cfg.base_url}\n", style="cyan")
+    welcome_text.append("\n  输入 /help 查看命令，输入问题直接对话\n", style="dim")
+
+    panel = Panel(
+        welcome_text,
+        title="[bold]Welcome[/bold]",
+        border_style="green",
+    )
+    console.print(panel)
+
+
+def build_messages_from_history() -> list[dict[str, str]]:
+    """从历史文件构建完整的 messages（含 system prompt）。
+
+    Returns:
+        [system, ...历史消息] 结构的列表。
+        历史为空时返回 [system]（只有系统提示）。
+    """
+    messages: list[dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    try:
+        history = load_messages(HISTORY_FILE)
+    except HistoryError as e:
+        console.print(f"[yellow]警告: 读取历史失败（{e}），将开始新对话[/yellow]")
+        return messages
+
+    # 历史文件里存的是 {"role", "content", "timestamp"}，
+    # 转成 LLM API 需要的 {"role", "content"} 格式
+    for msg in history:
+        role = msg.get("role")
+        content = msg.get("content", "")
+        # 只保留合法角色，过滤掉意外数据
+        if role in ("user", "assistant", "system"):
+            messages.append({"role": role, "content": content})
+
+    return messages
+
+
+def chat_loop(cfg: AppConfig, client: LLMClient) -> None:
+    """主交互循环——用户输入、调 LLM、存历史、输出。"""
+    print_welcome(cfg)
+
+    while True:
+        try:
+            # 彩色输入提示
+            user_input = console.input("[bold cyan]你: [/bold cyan]").strip()
+        except (EOFError, KeyboardInterrupt):
+            # Ctrl+D 或 Ctrl+C —— 优雅退出
+            console.print("\n[bold yellow]👋 再见！[/bold yellow]\n")
+            break
+
+        # 空输入直接跳过——不发空消息给 LLM
+        if not user_input:
+            continue
+
+        # 内置命令处理
+        if user_input.startswith("/"):
+            should_continue = handle_command(user_input, cfg, client)
+            if not should_continue:
+                break
+            continue
+
+        # ---- 正常对话 ----
+        # 1. 保存用户消息到历史
+        try:
+            save_message_with_limit(HISTORY_FILE, "user", user_input, MAX_HISTORY_ENTRIES)
+        except HistoryError as e:
+            console.print(f"[yellow]警告: 历史保存失败（{e}），本次对话仍继续[/yellow]")
+
+        # 2. 构建完整 messages 并调用 LLM
+        messages = build_messages_from_history()
+
+        try:
+            answer = client.chat_with_history(messages)
+        except AuthenticationError as e:
+            console.print(f"\n[bold red]❌ 认证失败[/bold red]\n{e}\n")
+            break  # Key 错了没法继续，退出循环
+        except RateLimitError as e:
+            console.print(f"\n[bold yellow]⚠️ 请求太快，稍等再试[/bold yellow]\n{e}\n")
+            continue
+        except ModelError as e:
+            console.print(f"\n[bold red]❌ 模型配置错误[/bold red]\n{e}\n")
+            break
+        except NetworkError as e:
+            console.print(f"\n[bold red]❌ 网络错误[/bold red]\n{e}\n")
+            continue
+        except TimeoutError as e:
+            console.print(f"\n[bold yellow]⚠️ 响应超时[/bold yellow]\n{e}\n")
+            continue
+        except LLMError as e:
+            console.print(f"\n[bold red]❌ LLM 错误[/bold red]\n{e}\n")
+            continue
+
+        # 3. 保存 AI 回答到历史
+        try:
+            save_message_with_limit(HISTORY_FILE, "assistant", answer, MAX_HISTORY_ENTRIES)
+        except HistoryError as e:
+            console.print(f"[yellow]警告: 历史保存失败（{e}）[/yellow]")
+
+        # 4. Rich 渲染 Markdown 输出
+        console.print("\n[bold green]🤖 AI:[/bold green]")
+        console.print(Markdown(answer))
+        console.print()  # 空行分隔
+
+
+def main() -> None:
+    """程序入口：加载配置 → 初始化客户端 → 进入交互循环。"""
+    # 1. 加载配置
+    try:
+        cfg = get_config()
+    except ConfigError as e:
+        console.print(Panel(
+            f"配置加载失败:\n{e}",
+            title="[bold red]配置错误[/bold red]",
+            border_style="red",
+        ))
+        console.print("[dim]提示: 参考 .env.example 创建 .env 文件[/dim]")
+        return
+
+    # 2. 初始化 LLM 客户端
+    client = LLMClient(cfg)
+
+    # 3. 进入交互循环
+    finally:
+        # 无论正常退出还是异常退出，都关闭连接
+        client.close()
+
+
+if __name__ == "__main__":
+    main()
+
+---
+
+运行方式
+
+# 1. 确保在项目根目录
+cd week1_llm_cli
+
+# 2. 激活虚拟环境
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
+
+# 3. 安装 Rich（Day 1 已装，若跳过则执行）
+pip install rich
+
+# 4. 运行
+python main.py
+
+预期交互效果：
+
+╭───────────────────────────────────────╮
+│ 🤖 LLM CLI 调用工具                     │
+│   模型: deepseek-chat                   │
+│   API: https://api.deepseek.com/v1     │
+│                                         │
+│   输入 /help 查看命令，输入问题直接对话   │
+╰───────────────────────────────────────╯
+
+你: /help
+┌──────────┬──────────────┐
+│ 命令     │ 说明         │
+├──────────┼──────────────┤
+│ /exit    │ 退出程序     │
+│ /history │ 查看历史     │
+│ /clear   │ 清空历史     │
+│ /help    │ 显示帮助     │
+└──────────┴──────────────┘
+
+你: 用 Python 写一个函数，判断一个数是不是质数
+
+🤖 AI:
+好的，下面是一个判断质数的 Python 函数：
+
+```python
+def is_prime(n: int) -> bool:
+    if n < 2:
+        return False
+    for i in range(2, int(n ** 0.5) + 1):
+        if n % i == 0:
+            return False
+    return True
+
+关键点： 只需要检查到 sqrt(n) 即可...
+
+你: /history
+📜 最近对话（共 2 条）:
+  👤 你: 用 Python 写一个函数，判断一个数是不是质数
+  🤖 AI: 好的，下面是一个判断质数的 Python 函数...
+
+你: /exit
+👋 再见！
+
+---
+
+### 你需要观察什么
+
+1. **Markdown 渲染效果**：LLM 回答里的 `**加粗**`、` ```python ``` ` 代码块、列表，被 Rich 渲染成了终端里的样式（加粗真的加粗、代码块有边框）。对比直接 `print(answer)` 的原始输出，差距很明显。
+2. **多轮对话的上下文**：连续问两轮相关的问题（比如先问"什么是列表推导式"，再问"那和生成器表达式呢"），第二轮 AI 能接上。退出程序重开，问"接着上一个话题"，如果历史保存正确，AI 还能记得。
+3. **命令的边界处理**：输入空字符串、输入 `/exit` 前后带空格、按 Ctrl+C、按 Ctrl+D，程序都应该优雅处理而不崩。
+4. **错误提示的分层**：故意断网再输入问题 → 显示黄色「网络错误」但程序不退出；故意写错 Key → 显示红色「认证失败」并退出循环。这就是 Day 2-3 做的错误分类在 CLI 里的落地。
+
+---
+
+### 可扩展任务
+
+1. **增加流式输出**：LLM 回答通常要等几秒才完整返回。用 `stream=True` + `httpx.stream()` 实现逐 token 打印，让用户看到回答"一个字一个字蹦出来"——这是所有 ChatGPT 类产品的体验核心。
+2. **增加对话导出**：加一个 `/export` 命令，把当前对话历史导出为 Markdown 文件到 `data/exports/` 目录，方便归档和复盘。
+3. **增加多会话管理**：把单一 `history.json` 改成按会话分文件（`data/sessions/{session_id}.json`），支持 `/new` 开新会话、`/list` 列出所有会话、`/load {id}` 切换会话。
+
+---
+
+## 🎯 每日自我验收题
+
+**第 1 题（概念解释）：** 为什么 `main.py` 要坚持「只做编排」而不把 LLM 调用、配置读取、历史保存的逻辑都写进来？如果全塞进一个文件，项目规模扩大到 Week 7（AI-Interview 有 8 个模块）时会发生什么？关联双链：[[Python 项目分层]]、[[LLM CLI 项目总览]]。
+
+---
+
+**第 2 题（小实现 / 设计）：** 给 CLI 增加一个 `/retry` 命令：当上一次 LLM 调用失败时，`/retry` 能重新调用一次（复用同样的 messages，但自动把 `temperature` 从 0.7 降到 0.2 以获得更稳定的输出）。要求：
+
+- 需要在内存里保存「上一次失败的 messages」
+- `/retry` 只能在有失败历史时生效，否则提示"没有可重试的请求"
+- 有完整异常处理，重试成功/失败都要给清晰反馈
+
+---
+
+**第 3 题（代码改错 / Bug 排查）：** 下面这段 CLI 代码有一个会导致**用户消息丢失**的 bug，找出来并说明修复方案：
+
+```python
+def chat_loop(client):
+    messages = []
+    while True:
+        user_input = input("你: ")
+
+        # 保存用户消息
+        messages.append({"role": "user", "content": user_input})
+
+        # 调用 LLM
+        answer = client.chat_with_history(messages)
+
+        # 保存 AI 回答
+        messages.append({"role": "assistant", "content": answer})
+
+        print(f"AI: {answer}")
+
+提示：从「数据是否持久化到磁盘」「程序异常退出后会发生什么」两个角度排查。关联双链：[[对话历史持久化]]、[[命令行交互]]。
+
+---
+
+📥 明日同步接口
+
+请你明天把下面这段填好发给我：
+
+【Day 5 学习反馈】
+1. 今天实际学习时长：
+2. 完成了哪些代码/文件：
+3. 哪个概念最清楚了：
+4. 哪个概念还没懂：
+5. 卡住的 Bug / 报错全文：
+6. 自我验收题完成情况：
+7. 明天希望：正常推进 / 放慢复习 / 加难扩展

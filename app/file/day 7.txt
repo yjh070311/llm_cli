@@ -1,0 +1,547 @@
+1. [[pytest 基础]] — 让代码「可信」的最低门槛
+
+它是什么： pytest 是 Python 最主流的测试框架。写测试就是写以 test_ 开头的函数，用 assert 断言结果符合预期。pytest 自动发现并运行这些函数，输出通过/失败的统计。
+
+它解决 Agent 工程里的什么痛点： 你 Day 6 刚重构完 llm_client.py，怎么证明「没改坏」？靠手点一遍 CLI？太慢且不可复现。测试让「重构是否安全」有了可重复验证的标准——跑一遍 pytest，全绿就是没改坏。Week 7 的 AI-Interview 有 8 个模块，没有测试的话，改评分逻辑时根本不敢动其他模块。
+
+今天为什么必须学： 本周核心产出物要求「至少 3 个测试用例」。今天给 config、history 写测试，学会测试的基本套路（构造输入 → 调用函数 → 断言输出），Week 2-8 每个项目都会用到。
+
+新手最容易踩什么坑：
+- 测试依赖真实外部服务（真的调 LLM API）——慢、花钱、不稳定。应该用 mock 隔离
+- 测试之间有共享状态（都往同一个文件写），跑一次通过、跑第二次挂——要用临时目录隔离
+- 只测 happy path（正常输入），不测边界和异常——真正的 bug 都藏在边界里
+
+---
+
+2. [[Mock 测试思路]] + [[项目复盘]] — 隔离依赖、沉淀价值
+
+它是什么： Mock（模拟）是用假的实现替换真实的外部依赖——比如测试 LLMClient 时用 mock 的 httpx.Response 代替真实 API 响应，这样测试不需要网络、不花钱、跑得快。项目复盘是把本周「学了什么、踩了什么坑、产出了什么、能讲什么」结构化地总结成文字。
+
+它解决 Agent 工程里的什么痛点： Agent 项目重度依赖外部 API（LLM、向量库、工具），如果测试都要真实调用，CI 跑一次要几分钟还花钱。Mock 让你把「我的逻辑对不对」和「外部服务是否正常」分开验证。复盘解决的是「学了一周，好像会了又好像没会」——把隐性经验变成显性可讲的内容，这是面试表达的唯一来源。
+
+
+新手最容易踩什么坑：
+- Mock 用错地方——mock 掉自己正在测试的代码，测试变成「测试 mock 本身」，毫无意义
+- 复盘写成流水账「今天写了 xxx」——复盘要回答「为什么这么设计」「遇到什么问题怎么解决」「下次怎么改进」
+
+---
+
+🎯 6 小时精细化路线
+
+上午 2 小时：学 pytest + 设计测试（09:00–11:00）
+
+┌─────┬───────────────────────────────────────────┬───────────────────┬──────────────────────────────────────────┐
+│ 时  │                 具体任务                  │     预期产出      │                成功检查点                │
+│ 间  │                                           │                   │                                          │
+├─────┼───────────────────────────────────────────┼───────────────────┼──────────────────────────────────────────┤
+│ 40  │ 读 pytest 官方 Getting Started，重点看    │ 理解 test_ 前缀、 │                                          │
+│ min │ test 函数命名、assert、fixture            │ assert、fixture   │ 写出 3 个能跑的 test_xxx() 函数          │
+│     │                                           │ 三件套            │                                          │
+├─────┼───────────────────────────────────────────┼───────────────────┼──────────────────────────────────────────┤
+│ 30  │ 读 pytest 的 tmp_path fixture 文档        │ 理解临时目录隔离  │ 写一个用 tmp_path 读写文件的测试         │
+│ min │                                           │                   │                                          │
+├─────┼───────────────────────────────────────────┼───────────────────┼──────────────────────────────────────────┤
+│ 30  │ 读 unittest.mock 的 Mock / patch          │ 理解 mock         │ 写一个 mock httpx.Response 的测试        │
+│ min │ 文档，理解「替换依赖」                    │ 的核心思想        │                                          │
+├─────┼───────────────────────────────────────────┼───────────────────┼──────────────────────────────────────────┤
+│ 20  │ 设计本周要写的 3 个测试：test_config、tes │ 一份测试计划      │ 每个测试写清楚「测什么、怎么构造输入、断 │
+│ min │ t_history、test_exceptions                │                   │ 言什么」                                 │
+└─────┴───────────────────────────────────────────┴───────────────────┴──────────────────────────────────────────┘
+
+关联双链：[[pytest 基础]]、[[Mock 测试思路]]
+
+---
+
+下午 3 小时：写测试 + 跑通（13:00–16:00）
+
+┌──────┬─────────────────────────────────────────────────────────┬───────────────────┬───────────────────────────┐
+│ 时间 │                        具体任务                         │     预期产出      │        成功检查点         │
+├──────┼─────────────────────────────────────────────────────────┼───────────────────┼───────────────────────────┤
+│ 50   │ 写 tests/test_config.py：正常读取、缺 Key               │ 3 个配置测试      │ pytest                    │
+│ min  │ 报错、缺文件报错                                        │                   │ tests/test_config.py 全绿 │
+├──────┼─────────────────────────────────────────────────────────┼───────────────────┼───────────────────────────┤
+│ 50   │ 写                                                      │                   │ pytest                    │
+│ min  │ tests/test_history.py：保存读取、追加、清空、损坏文件   │ 4 个历史测试      │ tests/test_history.py     │
+│      │                                                         │                   │ 全绿                      │
+├──────┼─────────────────────────────────────────────────────────┼───────────────────┼───────────────────────────┤
+│ 40   │ 写 tests/test_llm_client.py：用 mock                    │ 2 个 LLM          │                           │
+│ min  │ 测试错误处理和响应解析                                  │ 测试（mock 掉     │ 测试不依赖网络也能跑      │
+│      │                                                         │ HTTP）            │                           │
+├──────┼─────────────────────────────────────────────────────────┼───────────────────┼───────────────────────────┤
+│ 40   │ 跑全量测试 + 修测试暴露的 bug                           │ pytest -v 全绿    │ 至少 3 个测试，全部通过   │
+│ min  │                                                         │                   │                           │
+└──────┴─────────────────────────────────────────────────────────┴───────────────────┴───────────────────────────┘
+
+关联双链：[[pytest 基础]]、[[Mock 测试思路]]、[[异常处理]]
+
+---
+
+晚上 1 小时：复盘 + 面试表达（19:00–20:00）
+
+┌─────┬──────────────────────────────────────────────────────┬──────────────────┬─────────────────────────────────┐
+│ 时  │                       具体任务                       │     预期产出     │           成功检查点            │
+│ 间  │                                                      │                  │                                 │
+├─────┼──────────────────────────────────────────────────────┼──────────────────┼─────────────────────────────────┤
+│ 20  │ 写 notes/week1-summary.md：学了什么、踩了什么坑、项  │ 一份结构化周总结 │ 不是流水账，有「为什么」和「怎  │
+│ min │ 目架构、改进方向                                     │                  │ 么改进」                        │
+├─────┼──────────────────────────────────────────────────────┼──────────────────┼─────────────────────────────────┤
+│ 20  │ 整理 5 个面试问答（异步优势、httpx 选型、Key         │ 一份面试问答文档 │ 每题能脱稿讲 2 分钟             │
+│ min │ 安全、错误分层、项目亮点）                           │                  │                                 │
+├─────┼──────────────────────────────────────────────────────┼──────────────────┼─────────────────────────────────┤
+│ 10  │ 给项目打 tag v1.0-llm-cli，最终 commit               │ 一个可回溯的版本 │ git tag 能看到 v1.0-llm-cli     │
+│ min │                                                      │ 标记             │                                 │
+├─────┼──────────────────────────────────────────────────────┼──────────────────┼─────────────────────────────────┤
+│ 5   │ 自测 3 道题                                          │ 每题有答案草稿   │ 不确定的用 ? 标记               │
+│ min │                                                      │                  │                                 │
+└─────┴──────────────────────────────────────────────────────┴──────────────────┴─────────────────────────────────┘
+
+关联双链：[[项目复盘]]、[[AI Agent 面试题]]、[[Git 提交规范]]
+
+---
+
+💻 今日代码实战
+
+关联知识：[[pytest 基础
+
+安装 pytest
+
+# 激活虚拟环境后
+pip install pytest
+
+# 更新 requirements.txt
+pip freeze > requirements.txt
+
+---
+
+tests/__init__.py
+
+"""测试包——让 pytest 正确识别测试模块。
+
+这个文件可以为空，但它的存在告诉 pytest：
+tests/ 是一个 Python 包
+---
+
+tests/conftest.py（共享 fixture）
+
+"""
+pytest 共享 fixture — 测试之间的公共工具。
+
+fixture 是 pytest 的核心概念：
+    一个 fixture 是一段可复用的「测试准备代码」，
+    测试函数通过参数名引用它，pytest 自动注入。
+
+用法示例：
+    def test_something(tmp_path):  # tmp_path 是 pytest 内置 fixture
+        # tmp_path 是一个临时目录，测试结束自动清理
+        file = tmp_path / "test.txt"
+        file.write_text("hello")
+
+为什么用 tmp_path 而不是真实目录：
+    1. 每个测试拿到独立的空目录，互不干扰
+    2. 测试结束自动清理，不留垃圾
+    3. 避免测试污染真实数据文件
+"""
+
+import pytest
+
+from app.config import AppConfig
+
+
+@pytest.fixture
+def sample_config() -> AppConfig:
+    """提供一个合法的 AppConfig 测试实例。
+
+    不依赖 .env 文件——直接构造对象，测试更稳定。
+    """
+    return AppConfig(
+        api_key="sk-test-key-123456",
+        base_url="https://api.example.com/v1",
+        model="test-model",
+    )
+
+
+@pytest.fixture
+def sample_messages() -> list[dict[str, str]]:
+    """提供一段合法的 messages 列表。"""
+    return [
+
+---
+
+tests/test_config.py
+
+"""
+配置模块测试 — 验证 .env 读取和 ConfigError 异常。
+
+测试策略：
+    - 不依赖真实的 .env 文件（用 monkeypatch 临时设置环境变量）
+    - 用 tmp_path 构造临时的 .env 文件
+    - 同时测 happy path 和异常 path
+"""
+
+import pytest
+
+from app.config import get_config, ConfigError
+
+
+def test_get_config_reads_env_vars(monkeypatch, tmp_path):
+    """正常情况：.env 文件存在且配置完整，应该能正确读取。
+
+    monkeypatch 是 pytest 的内置 fixture，
+    可以临时修改环境变量，测试结束自动还原。
+    """
+    # 构造一个临时 .env 文件
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "LLM_API_KEY=sk-test-key\n"
+        "LLM_BASE_URL=https://api.test.com/v1\n"
+        "LLM_MODEL=test-model\n",
+        encoding="utf-8",
+    )
+
+    # 把当前工作目录「骗」到临时目录，让 _find_env_file 找到我们的 .env
+    monkeypatch.chdir(tmp_path)
+
+    cfg = get_config()
+
+    assert cfg.api_key == "sk-test-key"
+    assert cfg.base_url == "https://api.test.com/v1"
+    assert cfg.model ==
+    # 故意漏掉 LLM_API_KEY
+    env_file.write_text(
+        "LLM_BASE_URL=https://api.test.com/v1\n"
+        "LLM_MODEL=test-model\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ConfigError) as exc_info:
+        get_config()
+
+    # 错误信息应该明确指出是哪个字段缺失
+    assert "LLM_API_KEY" in str(exc_info.value)
+
+
+def test_get_config_no_env_file(monkeypatch, tmp_path):
+    """异常情况：没有 .env 文件，应该抛 ConfigError 并给出创建指引。"""
+    # 切到一个空目录（没有 .env）
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+    monkeypatch.chdir(empty_dir)
+
+    with pytest.raises(ConfigError) as exc_info:
+        get_config()
+
+    # 错误信息应该提到 .env
+    assert ".env" in str(exc_info.value)
+
+---
+
+tests/test_history.py
+
+"""
+历史记录模块测试 — 验证 JSON 持久化的保存、读取、清空和异常处理。
+
+测试策略：
+    - 全部用 tmp_path 隔离，不碰真实 data/ 目录
+    - 覆盖 happy path + 边界（空文件）+ 异常（损坏 JSON）
+"""
+
+import json
+from pathlib import Pat
+    save_message_with_limit,
+    load_messages,
+    clear_history,
+    HistoryError,
+)
+
+
+def test_save_and_load_messages(tmp_path):
+    """正常情况：保存两条消息后能读回来，顺序和内容正确。"""
+    filepath = tmp_path / "history.json"
+
+    save_message(filepath, "user", "问题一")
+    save_message(filepa
+def test_load_empty_file_returns_empty_list(tmp_path):
+    """边界情况：文件不存在或为空，应该返回空列表而不是报错。"""
+    filepath = tmp_path / "not_exist.json"
+
+    # 文件不存在
+    assert load_messages(filepath) == []
+
+    # 文件存在但为空
+    filepath.write_text("", encoding="utf-8")
+    assert load_messages(filepath) == []
+
+
+def test_save_message_w
+    # 应该只剩最新的 2 条（消息2 和 消息3），消息1 被删了
+    assert len(messages) == 2
+    assert messages[0]["content"] == "消息2"
+    assert messages[1]["content"] == "消息3"
+
+
+def test_clear_history(tmp_path):
+    """清空历史：清空后文件内容是空数组，读取返回空列表。"""
+    filepath = tmp_path / "history.json"
+
+    # 先保存两条
+    save_message(filepath, "user", "消息1")
+    save_message(filepath, "assistant", "消息2")
+
+    # 清空
+    clear_history(filepath)
+
+    assert load_messages(filepath) == []
+
+
+def test_corrupted_json_raises_history_error(tmp_path):
+    """异常情况：JSON 文件损坏，应该抛 HistoryError 而非裸 ValueError。"""
+    filepath = tmp_path / "broken.json"
+    # 写入损坏的 JSON（多了逗号）
+    filepath.write_text('{"role": "user",}', encoding="utf-8")
+
+    with pytest.raises(HistoryError):
+        load_messages(filepath)
+
+---
+
+tests/test_llm_client.py（用 mock 隔离外部依赖）
+
+"""
+LLM 客户端测试 — 用 mock 隔离真实的 API 调用。
+
+核心思想：
+    我们不测试 httpx 是否正常工作（那是 httpx 库的职责），
+    也不测试 LLM API 是
+    我们只测试 LLMClient 自己的逻辑：
+        1. 收到 401 时是否抛 AuthenticationError
+        2. 收到正常响应时是否正确提取 content
+        3. finish_reason=length 时是否加截断警告
+
+    所以用 mock 替换 httpx 的 post 方法，让它返回我们预设的响应。
+    测试不联网、不花钱、秒级完成。
+"""
+
+from unittest.mock import Mock, patch
+
+import httpx
+import pytest
+
+from app.config import AppConfig
+from app.llm_client import LLMClient
+from app.exceptions imp
+@pytest.fixture
+def client(sample_config: AppConfig) -> LLMClient:
+    """提供一个 LLMClient 实例（测试结束自动关闭连接）。"""
+    c = LLMClient(sample_config)
+    yield c
+    c.close()
+
+
+def _make_response(status_code: int, json_body: dict) -> httpx.Response:
+    """构造一个假的 httpx.Response——这是 mock 的关键辅助函数。
+
+    真实的 httpx.Response 是库内部构造的，我们这里手动构造一个
+    带指定状态码和 JSON
+    """构造一个合法的成功响应体。"""
+    return {
+        "choices": [
+            {
+                "message": {"role": "assistant", "content": content},
+                "finish_reason": finish_reason,
+            }
+        ],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+    }
+
+
+def test_chat_extracts_content(client: LLMClient):
+    """正常情况：收到 200 响应，正确提取 content。"""
+    fake_response = _make_response(200, _success_body("你好，我是测试回答"))
+
+    # 用 patch 替换 client._client.post，让它返回假响应
+    # 这样测试不联网，LLMClient 拿到的是我们预设的数据
+    with patch.object(client._client, "post", return_value=fake_response):
+        result = client.chat("测试问题")
+
+    assert result == "你好，我是测试回答"
+
+
+def test_chat_401_raises_auth_error(client: LLMClient):
+    """异常情况：收到 401，应该抛 AuthenticationError。"""
+    error_body = {
+        "error": {"message": "Invalid API key", "type": "invalid_request_error"}
+    }
+    fake_response = _make_response(401, error_body)
+
+    with patch.object(c
+            client.chat("测试问题")
+
+
+def test_chat_429_raises_rate_limit(client: LLMClient):
+    """异常情况：收到 429，应该抛 RateLimitError。"""
+    error_body = {
+        "error": {"message": "Rate limit exceeded", "type": "rate_limit_error"}
+    }
+    fake_response = _make_response(429, error_body)
+
+    with patch.object(client._client, "post", return_value=fake_response):
+        with pytest.raises(RateLimitError):
+            client.chat
+        _success_body("被截断的回答内容", finish_reason="length"),
+    )
+
+    with patch.object(client._client, "post", return_value=fake_response):
+        result = client.chat("测试问题")
+
+    # 断言结果包含警告标记
+    assert "截断" in result
+    assert "max_tokens" in result
+
+---
+
+notes/week1-summary.md（
+- Day 5：交互式 CLI（Rich 美化 + 命令系统 + 历史持久化）
+- Day 6：重构（抽取公共逻辑 + 统一异常 + README）
+- Day 7：测试（pytest + mock 隔离外部依赖）
+
+## 核心产出
+
+`week1_llm_cli` —— 一个可运行、有测试、有文档的 LLM CLI 工具。
+
+## 踩过的坑（写成「现象 → 原因 → 解决」）
+
+1. **现象**：`python main.py` 报 `ModuleNotFoundError`
+   **原因**：虚拟环境没激活
+   **解决**：先 activate 再运行
+
+2. **现象**：LLM 返回 401
+   **原因**：Authorization 头写成 `Authorization: sk-xxx`，少了 `Bearer`
+   **解决**：改成 `Authorization: Bearer sk-xxx`
+
+3. （继续补充你自己的坑）
+
+## 技术选型理由
+
+- httpx 而非 requests：需要原生异步支持
+- 自定义异常而非裸 Exception：错误可分类、可针对性处理
+- JSON 而非数据库：Week 1 规模小，Week 2 上数据库
+
+## 下周改进方向
+
+- [ ] FastAPI 后端骨架（Week 2 主线）
+- [ ] 数据库持久化（替换 JSON）
+- [ ] 流式输出
+- [ ] 更多测试覆盖
+
+---
+
+运行方式
+
+# 1. 激活虚拟环境
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
+
+# 2. 安装 pytest
+pip install pytest
+pip freeze > requirements.txt
+
+# 3. 跑单个测试文件
+pytest tests/test_config.py -v
+
+git tag v1.0-llm-cli
+
+预期输出：
+
+================================ test session starts =================================
+collected 12 items
+
+tests/test_config.py::test_get_config_reads_env_vars PASSED                 [  8%]
+tests/test_config.py::test_get_config_missing_key PASSED                    [ 16%]
+tests/test_config.py::test_get_config_no_env_file PASSED                    [ 25%]
+tests/test_history.py::test_save_and_load_messages PASSED                   [ 33%]
+tests/test_history.py::test_load_empty_file_returns_empty_list PASSED       [ 41%]
+tests/test_history.py::test_save_message_with_limit PASSED                  [ 50%]
+tests/test_history.py::test_clear_history PASSED                            [ 58%]
+tests/test_history.py::test_corrupted_json_raises_history_error PASSED      [ 66%]
+tests/test_llm_client.py::test_chat_extracts_content PASSED                 [ 75%]
+tests/test_llm_client.py::test_chat_401_raises_auth_error PASSED            [ 83%]
+tests/test_llm_client.p
+1. 测试速度：注意 0.31s——全部 12 个测试半秒跑完。如果是真实调 LLM API，12 次调用至少 30 秒还要花钱。这就是 mock 的价值：测试逻辑和外部服务解耦。
+2. tmp_path 的隔离效果：test_history.py 里的测试没有碰真实的 data/history.json。即使测试失败、写乱了文件，你的真实历史数据也不受影响。
+3. monkeypatch.chdir 的巧妙：test_config.py 通过临时切换工作目录，让 _find_env_file() 找到测试构造的 .env，而不是你项目里真实的 .env。这避免了测试污染真实配置。
+4. 异常测试的写法：with pytest.raises(ConfigError) as exc_info: 不仅断言「抛了异常」，还能用 exc_info.value 检查异常消息内容——测试错误提示是否友好。
+
+---
+
+可扩展任务
+
+1. 增加 test_timer.py：测试 @timer 装饰器对同步和异步函数都生效，且 functools.wraps 保留了原函数名和 docstring。
+2. 测覆盖率：pip install pytest-cov，跑 pytest --cov=app --cov-report=term-missing，看哪些代码行没被测试覆盖，针对性补测试。
+3. 加 CI 配置：写一个 GitHub Actions 工作流（.github/workflows/test.yml），每次 push 自动跑测试。这是 Week 8 工程化的预告——面试时「我项目有 CI」是加分项。
+
+---
+
+🎯 每日自我验收题
+
+第 1 题（概念解释）： 为什么测试 LLM 调用时要用 mock 而不是真实调用 API？mock 测试能覆盖「网络超时」「认证失败」这些场景吗？如果能，是怎么模拟的？如果不能，真实场景应该用什么测试（提示：集成测试）来覆盖？关联双链：[[Mock 测试思路]]、[[pytest 基础]]。
+
+---
+
+第 2 题（小实现 / 设计）： 给 test_history.py 增加一个测试 test_save_message_creates_parent_dir，验证当 data/ 目录不存在时，save_message 能自动创建父目录（这是 _ensure_data_dir 的职责）。要求：
+
+- 用一个深层不存在的路径，比如 tmp_path / "a" / "b" / "c" / "history.json"
+- 保存一条消息后，断言文件确实存在于那个路径.env，而不是你项目里真实的 .env。这避免了测试污染真实配置。
+4. 异常测试的写法：with pytest.raises(ConfigError) as exc_info: 不仅断言「抛了异常」，还能用 exc_info.value 检查异常消息内容——测试错误提示是否友好。
+
+---
+
+可扩展任务
+
+1. 增加 test_timer.py：测试 @timer 装饰器对同步和异步函数都生效，且 functools.wraps 保留了原函数名和 docstring。
+2. 测覆盖率：pip install pytest-cov，跑 pytest --cov=app --cov-report=term-missing，看哪些代码行没被测试覆盖，针对性补测试。
+3. 加 CI 配置：写一个 GitHub Actions 工作流（.github/workflows/test.yml），每次 push 自动跑测试。这是 Week 8 工程化的预告——面试时「我项目有 CI」是加分项。
+
+---
+
+🎯 每日自我验收题
+
+第 1 题（概念解释）： 为什么测试 LLM 调用时要用 mock 而不是真实调用 API？mock 测试能覆盖「网络超时」「认证失败」这些场景吗？如果能，是怎么模拟的？如果不能，真实场景应该用什么测试（提示：集成测试）来覆盖？关联双链：[[Mock 测试思路]]、[[pytest 基础]]。
+
+---
+
+第 2 题（小实现 / 设计）： 给 test_history.py 增加一个测试 test_save_message_creates_parent_dir，验证当 data/ 目录不存在时，save_message 能自动创建父目录（这是 _ensure_data_dir 的职责）。要求：
+
+- 用一个深层不存在的路径，比如 tmp_path / "a" / "b" / "c" / "history.json"
+- 保存一条消息后，断言文件确实存在于那个路径
+- 断言 load_messages 能读回那条消息
+
+---
+
+第 3 题（代码改错 / Bug 排查）： 下面这个测试有两个问题，导致它「测试通过但不测任何东西」，找出来并修复：
+
+def test_history_save(tmp_path):
+    filepath = tmp_path / "history.json"
+
+    save_message(filepath, "user", "测试")
+    messages = load_messages(filepath)
+
+    # 这里断言太弱了
+    assert messages is not None
+
+提示：从「断言的强度」「是否真的验证了保存的内容」两个角度排查。关联双链：[[pytest 基础]]、[[JSON 文件读写]]。
+
+---
+
+📥 明日同步接口
+
+请你明天把下面这段填好发给我：
+
+【Day 7 学习反馈】
+1. 今天实际学习时长：
+2. 完成了哪些代码/文件：
+3. 哪个概念最清楚了：
+4. 哪个概念还没懂：
+5. 卡住的 Bug / 报错全文：
+6. 自我验收题完成情况：
+7. 明天希望：正常推进 / 放慢复习 / 加难扩展
